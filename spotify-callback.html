@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Spotify — Lazy Music</title>
+  <style>
+    body { font-family: sans-serif; background: #0d0d12; color: #e8e0d0; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .card { text-align: center; padding: 32px; border: 1px solid #2a2a3e; border-radius: 10px; background: #13131a; }
+    .ok { color: #1db954; } .err { color: #c0392b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 id="t">Подключение...</h2>
+    <p id="m">Пожалуйста подождите.</p>
+  </div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    const code = p.get('code'), err = p.get('error');
+    if (err) {
+      document.getElementById('t').className = 'err';
+      document.getElementById('t').textContent = 'Ошибка';
+      document.getElementById('m').textContent = err;
+    } else if (code && window.opener) {
+      window.opener.postMessage({ type: 'lm-spotify-callback', code }, '*');
+      document.getElementById('t').className = 'ok';
+      document.getElementById('t').textContent = 'Подключено!';
+      document.getElementById('m').textContent = 'Можно закрыть это окно.';
+      setTimeout(() => window.close(), 2000);
+    }
+  </script>
+</body>
+</html>

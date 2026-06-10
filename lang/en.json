@@ -1,0 +1,12 @@
+{
+  "LAZYMUSIC.Settings.YouTubeApiKey": "YouTube Data API v3 Key",
+  "LAZYMUSIC.Settings.YouTubeApiKeyHint": "API key from Google Cloud Console with YouTube Data API v3 enabled.",
+  "LAZYMUSIC.Settings.SpotifyClientId": "Spotify Client ID",
+  "LAZYMUSIC.Settings.SpotifyClientIdHint": "Client ID from your Spotify app at developer.spotify.com.",
+  "LAZYMUSIC.Settings.SpotifyRedirectUri": "Spotify Redirect URI",
+  "LAZYMUSIC.Settings.SpotifyRedirectUriHint": "Must match the Redirect URI set in your Spotify app. Default: http://localhost:30000/modules/lazy-music/spotify-callback.html",
+  "LAZYMUSIC.Settings.SyncToPlayers": "Sync Music to Players",
+  "LAZYMUSIC.Settings.SyncToPlayersHint": "Broadcast GM playback to all connected players.",
+  "LAZYMUSIC.Settings.ServerUrl": "External Music Server URL (optional)",
+  "LAZYMUSIC.Settings.ServerUrlHint": "Usually NOT needed: the module's built-in helper is used automatically (launch Foundry via the \"Foundry VTT (with music)\" shortcut). Set this only as a fallback — the \"My Music\" server address as players see it (e.g. http://26.x.x.x:8765 over Radmin)."
+}

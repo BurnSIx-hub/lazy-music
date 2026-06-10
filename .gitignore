@@ -1,0 +1,13 @@
+# Кэш скачанных треков и лог помощника — локальные данные
+cache/
+server/helper.log
+
+# Большие бинарники не храним в git — релизный zip собирает tools/pack-release.ps1
+server/bin/*.exe
+
+# Cookies — секрет, никогда не публиковать
+cookies.txt
+*cookies*.txt
+
+# Релизные артефакты
+release/

@@ -1,0 +1,12 @@
+{
+  "LAZYMUSIC.Settings.YouTubeApiKey": "Ключ YouTube Data API v3",
+  "LAZYMUSIC.Settings.YouTubeApiKeyHint": "API-ключ из Google Cloud Console с включённым YouTube Data API v3.",
+  "LAZYMUSIC.Settings.SpotifyClientId": "Spotify Client ID",
+  "LAZYMUSIC.Settings.SpotifyClientIdHint": "Client ID вашего приложения на developer.spotify.com.",
+  "LAZYMUSIC.Settings.SpotifyRedirectUri": "Spotify Redirect URI",
+  "LAZYMUSIC.Settings.SpotifyRedirectUriHint": "Должен совпадать с Redirect URI в настройках приложения Spotify. По умолчанию: http://localhost:30000/modules/lazy-music/spotify-callback.html",
+  "LAZYMUSIC.Settings.SyncToPlayers": "Синхронизация с игроками",
+  "LAZYMUSIC.Settings.SyncToPlayersHint": "Транслировать воспроизведение GM всем подключённым игрокам.",
+  "LAZYMUSIC.Settings.ServerUrl": "URL внешнего музыкального сервера (не обязательно)",
+  "LAZYMUSIC.Settings.ServerUrlHint": "Обычно НЕ нужно: встроенный помощник модуля используется автоматически (запускайте Foundry ярлыком «Foundry VTT (с музыкой)»). Заполните только как запасной вариант — адрес сервера «Моя Музыка», как его видят игроки (например http://26.x.x.x:8765 по Radmin)."
+}

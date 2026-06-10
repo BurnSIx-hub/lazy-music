@@ -1,0 +1,34 @@
+{
+  "id": "lazy-music",
+  "title": "Lazy Music \u2014 YouTube & Spotify",
+  "description": "Stream YouTube and Spotify music to your players. Integrated with Foundry's playlist panel.",
+  "version": "2.3.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14"
+  },
+  "authors": [
+    {
+      "name": "Lazy Music"
+    }
+  ],
+  "esmodules": [
+    "scripts/main.mjs"
+  ],
+  "styles": [
+    "styles/lazy-music.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    },
+    {
+      "lang": "ru",
+      "name": "Russian",
+      "path": "lang/ru.json"
+    }
+  ],
+  "socket": true
+}

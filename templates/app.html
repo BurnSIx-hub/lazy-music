@@ -1,0 +1,159 @@
+{{!-- Lazy Music App Template --}}
+<div class="lm-container">
+
+  {{!-- Header --}}
+  <div class="lm-header">
+    <div class="lm-logo"><i class="fas fa-music"></i> Lazy Music</div>
+    <div class="lm-tabs">
+      <button class="lm-tab {{#if (eq source 'youtube')}}active{{/if}}" data-source="youtube">
+        <i class="fab fa-youtube"></i> YouTube
+      </button>
+      <button class="lm-tab {{#if (eq source 'spotify')}}active{{/if}}" data-source="spotify">
+        <i class="fab fa-spotify"></i> Spotify
+      </button>
+    </div>
+    <label class="lm-sync">
+      <input type="checkbox" id="lm-sync-toggle" {{#if syncToPlayers}}checked{{/if}}>
+      <i class="fas fa-broadcast-tower"></i>
+    </label>
+  </div>
+
+  <div class="lm-body">
+
+    {{!-- Sidebar --}}
+    <div class="lm-sidebar">
+      <div class="lm-sidebar-head">
+        <span>Плейлисты</span>
+        <button id="lm-add-playlist"><i class="fas fa-plus"></i></button>
+      </div>
+
+      {{#if (eq source 'spotify')}}
+        {{#if spLoggedIn}}
+          <button id="lm-sp-logout" class="lm-sp-btn lm-sp-logout">
+            <i class="fab fa-spotify"></i> Отключить
+          </button>
+        {{else}}
+          <div class="lm-auth-prompt">
+            <i class="fab fa-spotify"></i>
+            <p>Подключите Spotify</p>
+            <button id="lm-sp-login" class="lm-sp-btn lm-sp-login">Войти</button>
+          </div>
+        {{/if}}
+      {{/if}}
+
+      {{#if (eq source 'youtube')}}
+        {{#unless ytApiKey}}
+          <div class="lm-auth-prompt">
+            <i class="fab fa-youtube"></i>
+            <p>Укажите YouTube API key в настройках модуля</p>
+          </div>
+        {{/unless}}
+      {{/if}}
+
+      <div class="lm-pl-list">
+        {{#each playlists}}
+          <div class="lm-pl-item {{#if (eq this.id ../playlist.id)}}active{{/if}}" data-id="{{this.id}}">
+            {{#if this.image}}
+              <img src="{{this.image}}" class="lm-pl-thumb">
+            {{else}}
+              <div class="lm-pl-thumb lm-pl-thumb-ph"><i class="fas fa-music"></i></div>
+            {{/if}}
+            <div class="lm-pl-info">
+              <div class="lm-pl-name">{{this.name}}</div>
+              <div class="lm-pl-count">{{this.trackCount}} треков</div>
+            </div>
+            <button class="lm-pl-del" title="Удалить"><i class="fas fa-times"></i></button>
+          </div>
+        {{/each}}
+      </div>
+    </div>
+
+    {{!-- Content --}}
+    <div class="lm-content">
+      <div class="lm-search">
+        <i class="fas fa-search"></i>
+        <input type="text" id="lm-search-input" placeholder="Поиск треков...">
+        <button id="lm-search-btn"><i class="fas fa-search"></i></button>
+        {{#if searchMode}}<button id="lm-clear-search"><i class="fas fa-times"></i></button>{{/if}}
+      </div>
+
+      <div class="lm-tracks" {{#if searchMode}}data-search="true"{{/if}}>
+        {{#if tracks.length}}
+          {{#each tracks}}
+            <div class="lm-track" data-i="{{@index}}">
+              <div class="lm-track-num">{{@index}}</div>
+              {{#if this.albumArt}}
+                <img src="{{this.albumArt}}" class="lm-track-art">
+              {{else}}
+                <div class="lm-track-art lm-track-art-ph">
+                  {{#if (eq this.source 'youtube')}}<i class="fab fa-youtube"></i>{{/if}}
+                  {{#if (eq this.source 'spotify')}}<i class="fab fa-spotify"></i>{{/if}}
+                </div>
+              {{/if}}
+              <div class="lm-track-meta">
+                <div class="lm-track-name {{#if this.isRenamed}}lm-renamed{{/if}}">
+                  {{#if this.displayTitle}}{{this.displayTitle}}{{else}}{{this.title}}{{/if}}
+                </div>
+                <div class="lm-track-artist">{{this.artist}}</div>
+              </div>
+              <button class="lm-rename-btn" title="Переименовать"><i class="fas fa-pen"></i></button>
+            </div>
+          {{/each}}
+        {{else if playlist}}
+          <div class="lm-empty"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
+        {{else}}
+          <div class="lm-empty">
+            <i class="fas fa-music"></i>
+            <p>Выберите плейлист или найдите треки</p>
+          </div>
+        {{/if}}
+      </div>
+    </div>
+  </div>
+
+  {{!-- Player bar --}}
+  <div class="lm-player">
+    <div class="lm-np">
+      {{#if track}}
+        {{#if track.albumArt}}
+          <img src="{{track.albumArt}}" class="lm-np-art">
+        {{else}}
+          <div class="lm-np-art lm-np-art-ph"><i class="fab fa-youtube"></i></div>
+        {{/if}}
+        <div class="lm-np-info">
+          <div class="lm-np-title">{{#if track.displayTitle}}{{track.displayTitle}}{{else}}{{track.title}}{{/if}}</div>
+          <div class="lm-np-artist">{{track.artist}}</div>
+        </div>
+      {{else}}
+        <div class="lm-no-track">Ничего не играет</div>
+      {{/if}}
+    </div>
+
+    <div class="lm-controls">
+      <div class="lm-progress-wrap">
+        <span id="lm-time-cur">0:00</span>
+        <div id="lm-progress-bar"><div id="lm-progress-fill"></div></div>
+        <span id="lm-time-tot">0:00</span>
+      </div>
+      <div class="lm-btns">
+        <button id="lm-shuffle" class="lm-btn {{#if shuffle}}active{{/if}}" title="Случайный"><i class="fas fa-random"></i></button>
+        <button id="lm-prev"    class="lm-btn" title="Предыдущий"><i class="fas fa-step-backward"></i></button>
+        <button id="lm-play-pause" class="lm-btn lm-play" title="Play/Pause">
+          <i class="fas {{#if playing}}fa-pause{{else}}fa-play{{/if}}"></i>
+        </button>
+        <button id="lm-next"   class="lm-btn" title="Следующий"><i class="fas fa-step-forward"></i></button>
+        <button id="lm-repeat" class="lm-btn {{#if repeat}}active{{/if}}" title="Повтор"><i class="fas fa-redo"></i></button>
+        <button id="lm-stop"   class="lm-btn lm-stop" title="Стоп"><i class="fas fa-stop"></i></button>
+      </div>
+    </div>
+
+    <div class="lm-gm-vol">
+      <div class="lm-gm-vol-label" title="Общая громкость для всех игроков">
+        <i class="fas fa-users"></i>
+      </div>
+      <input type="range" id="lm-gm-vol-slider" min="0" max="1" step="0.01" value="{{gmVolume}}" title="Громкость для всех игроков">
+      <span id="lm-gm-vol-pct">{{gmVolumePct}}%</span>
+    </div>
+  </div>
+
+</div>
