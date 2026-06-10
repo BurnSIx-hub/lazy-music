@@ -150,6 +150,10 @@ A: Да, но в настройках Spotify нужно указать прав
 
 ---
 
+---
+
+Другие модули автора: [BurnSIx-hub/foundry-modules](https://github.com/BurnSIx-hub/foundry-modules)
+
 ## 📝 Лицензия
 
 MIT License — используйте свободно.
