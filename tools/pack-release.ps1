@@ -1,4 +1,4 @@
-# Lazy Music — сборка релиза для GitHub.
+﻿# Lazy Music — сборка релиза для GitHub.
 # Создаёт release\module.zip (модуль целиком, с yt-dlp.exe и deno.exe)
 # и release\module.json (манифест для установки по ссылке в Foundry).
 #
