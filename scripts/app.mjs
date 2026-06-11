@@ -153,10 +153,24 @@ export class LMApp extends HandlebarsApp {
     if (!this._instance) {
       this._instance = new LMApp();
       // Загружаем сохранённые плейлисты сразу
-      this._instance.playlists = LMSettings.getPlaylists(this._instance.source);
+      this._instance._refreshPlaylists();
     }
     this._instance.render(true);
     return this._instance;
+  }
+
+  // Список плейлистов сайдбара: на вкладке YouTube сверху — свои (собранные
+  // из поиска), затем обычные YouTube-плейлисты
+  _refreshPlaylists() {
+    if (this.source === 'youtube') {
+      const custom = LMSettings.getCustomPlaylists().map(p => ({
+        id: p.id, name: p.name, trackCount: p.tracks.length,
+        image: p.tracks[0]?.albumArt || '', source: 'youtube', custom: true
+      }));
+      this.playlists = [...custom, ...LMSettings.getPlaylists('youtube')];
+    } else {
+      this.playlists = LMSettings.getPlaylists(this.source);
+    }
   }
 
   // ── Template data ─────────────────────────────────────────────────────────
@@ -176,6 +190,8 @@ export class LMApp extends HandlebarsApp {
       shuffle: this.shuffle,
       repeat: this.repeat,
       ytApiKey: !!LMSettings.get('youtubeApiKey'),
+      customView: !!this.playlist?.custom && !this.searchMode,
+      canAddToCustom: this.source === 'youtube' && !this.playlist?.custom,
       spLoggedIn: LMSettings.spotifyLoggedIn(),
       syncToPlayers: LMSettings.get('syncToPlayers'),
       gmVolume:    this.gmVolume,
@@ -192,8 +208,10 @@ export class LMApp extends HandlebarsApp {
     on('#lm-add-playlist',    'click', () => this._addPlaylistDialog());
     on('.lm-pl-item',         'click', e => { if (!e.target.closest('.lm-pl-del')) this._loadPlaylist(e.currentTarget.dataset.id); });
     on('.lm-pl-del',          'click', e => { e.stopPropagation(); this._delPlaylist(e.currentTarget.closest('.lm-pl-item').dataset.id); });
-    on('.lm-track',           'click', e => { if (!e.target.closest('.lm-rename-btn')) this._playIdx(+e.currentTarget.dataset.i); });
+    on('.lm-track',           'click', e => { if (!e.target.closest('.lm-rename-btn, .lm-addpl-btn, .lm-deltrack-btn')) this._playIdx(+e.currentTarget.dataset.i); });
     on('.lm-rename-btn',      'click', e => { e.stopPropagation(); this._renameTrack(+e.currentTarget.closest('.lm-track').dataset.i); });
+    on('.lm-addpl-btn',       'click', e => { e.stopPropagation(); this._addTrackToCustomDialog(+e.currentTarget.closest('.lm-track').dataset.i); });
+    on('.lm-deltrack-btn',    'click', e => { e.stopPropagation(); this._removeTrackFromCustom(+e.currentTarget.closest('.lm-track').dataset.i); });
     on('#lm-play-pause',      'click', () => this._togglePlay());
     on('#lm-prev',            'click', () => this._prev());
     on('#lm-next',            'click', () => this._next());
@@ -255,10 +273,10 @@ export class LMApp extends HandlebarsApp {
   async _setSource(src) {
     this.source = src;
     this.playlist = null; this.tracks = []; this.searchMode = false; this.searchResults = [];
-    this.playlists = LMSettings.getPlaylists(src);
+    this._refreshPlaylists();
     // Если есть сохранённый плейлист — восстанавливаем треки
     if (src === 'spotify' && LMSettings.spotifyLoggedIn()) {
-      try { const pls = await SpotifyAPI.getUserPlaylists(); pls.forEach(p => LMSettings.addPlaylist('spotify', p)); this.playlists = LMSettings.getPlaylists('spotify'); } catch {}
+      try { const pls = await SpotifyAPI.getUserPlaylists(); pls.forEach(p => LMSettings.addPlaylist('spotify', p)); this._refreshPlaylists(); } catch {}
     }
     this.render(false);
   }
@@ -294,7 +312,7 @@ export class LMApp extends HandlebarsApp {
       const info = await YouTubeAPI.getPlaylistInfo(id);
       const pl   = { id, name: info.snippet.title, trackCount: info.contentDetails.itemCount, image: info.snippet.thumbnails?.medium?.url || '', source: 'youtube' };
       LMSettings.addPlaylist('youtube', pl);
-      this.playlists = LMSettings.getPlaylists('youtube');
+      this._refreshPlaylists();
       this.render(false);
       ui.notifications.info(`"${pl.name}" added!`);
     } catch (e) { ui.notifications.error('YouTube: ' + e.message); }
@@ -308,14 +326,15 @@ export class LMApp extends HandlebarsApp {
       const info = await SpotifyAPI.fetch(`/playlists/${id}?fields=id,name,images,tracks(total)`);
       const pl = { id, name: info.name, trackCount: info.tracks.total, image: info.images?.[0]?.url || '', source: 'spotify' };
       LMSettings.addPlaylist('spotify', pl);
-      this.playlists = LMSettings.getPlaylists('spotify');
+      this._refreshPlaylists();
       this.render(false);
     } catch (e) { ui.notifications.error('Spotify: ' + e.message); }
   }
 
   _delPlaylist(id) {
-    LMSettings.removePlaylist(this.source, id);
-    this.playlists = LMSettings.getPlaylists(this.source);
+    if (id.startsWith('custom-')) LMSettings.deleteCustomPlaylist(id);
+    else LMSettings.removePlaylist(this.source, id);
+    this._refreshPlaylists();
     if (this.playlist?.id === id) { this.playlist = null; this.tracks = []; }
     this.render(false);
   }
@@ -324,11 +343,90 @@ export class LMApp extends HandlebarsApp {
     const pl = this.playlists.find(p => p.id === id);
     if (!pl) return;
     this.playlist = pl;
+
+    // Свой плейлист — треки лежат локально, в сеть ходить не нужно
+    if (pl.custom) {
+      const stored = LMSettings.getCustomPlaylists().find(p => p.id === id);
+      this.tracks = (stored?.tracks ?? []).map(t => {
+        const customName = LMSettings.getTrackName(t.id);
+        return { ...t, displayTitle: customName || t.title, isRenamed: !!customName };
+      });
+      this.searchMode = false; this.searchResults = [];
+      this.render(false);
+      return;
+    }
+
     ui.notifications.info(`Loading "${pl.name}"...`);
     try {
       this.tracks = this.source === 'youtube' ? await YouTubeAPI.getPlaylistItems(id) : await SpotifyAPI.getPlaylistTracks(id);
       this.render(false);
     } catch (e) { ui.notifications.error('Load failed: ' + e.message); }
+  }
+
+  // ── Свои плейлисты: добавление/удаление треков ────────────────────────────
+
+  async _addTrackToCustomDialog(i) {
+    const pool  = this.searchMode ? this.searchResults : this.tracks;
+    const track = pool[i];
+    if (!track || track.source !== 'youtube') return;
+
+    const esc = (s) => foundry.utils.escapeHTML(String(s || ''));
+    const customs = LMSettings.getCustomPlaylists();
+    const options = customs.map(p => `<option value="${p.id}">${esc(p.name)} (${p.tracks.length})</option>`).join('')
+      + `<option value="__new__"${customs.length ? '' : ' selected'}>— Новый плейлист —</option>`;
+    const inputStyle = 'width:100%;margin-top:4px;background:#1a1a24;border:1px solid #2a2a3e;color:#e8e0d0;padding:5px 8px;border-radius:4px;';
+    const content = `<div style="padding:8px">
+      <div style="margin-bottom:8px;color:#8a8270;font-size:12px;">${esc(track.displayTitle || track.title)}</div>
+      <label>В какой плейлист</label>
+      <select name="pl" style="${inputStyle}">${options}</select>
+      <label style="display:block;margin-top:8px;">Название нового (если выбран «Новый»)</label>
+      <input type="text" name="newname" placeholder="Например: Бой, Таверна..." style="${inputStyle}">
+    </div>`;
+
+    let result;
+    if (foundry.applications?.api?.DialogV2) {
+      result = await foundry.applications.api.DialogV2.prompt({
+        window: { title: 'Добавить в свой плейлист' },
+        content,
+        ok: { callback: (event) => {
+          const form = event.target.closest('form') ?? event.target.form;
+          return { pl: form?.querySelector('[name=pl]')?.value, newname: form?.querySelector('[name=newname]')?.value?.trim() };
+        } }
+      }).catch(() => null);
+    } else {
+      result = await Dialog.prompt({
+        title: 'Добавить в свой плейлист',
+        content,
+        callback: h => ({ pl: h.find('[name=pl]').val(), newname: h.find('[name=newname]').val()?.trim() }),
+        rejectClose: false
+      }).catch(() => null);
+    }
+    if (!result) return;
+
+    let plId = result.pl;
+    if (plId === '__new__' || result.newname) {
+      plId = LMSettings.createCustomPlaylist(result.newname).id;
+    }
+    if (!plId) return;
+
+    const added = LMSettings.addTrackToCustomPlaylist(plId, track);
+    const plName = LMSettings.getCustomPlaylists().find(p => p.id === plId)?.name ?? '';
+    ui.notifications.info(added
+      ? `«${track.displayTitle || track.title}» → «${plName}»`
+      : `Этот трек уже есть в «${plName}»`);
+    this._refreshPlaylists();
+    this.render(false);
+  }
+
+  _removeTrackFromCustom(i) {
+    if (!this.playlist?.custom) return;
+    const track = this.tracks[i];
+    if (!track) return;
+    LMSettings.removeTrackFromCustomPlaylist(this.playlist.id, track.id);
+    this.tracks.splice(i, 1);
+    if (this.trackIdx > i) this.trackIdx--;
+    this._refreshPlaylists();
+    this.render(false);
   }
 
   // ── Playback ──────────────────────────────────────────────────────────────

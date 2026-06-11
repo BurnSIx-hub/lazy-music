@@ -62,7 +62,7 @@
               <div class="lm-pl-thumb lm-pl-thumb-ph"><i class="fas fa-music"></i></div>
             {{/if}}
             <div class="lm-pl-info">
-              <div class="lm-pl-name">{{this.name}}</div>
+              <div class="lm-pl-name">{{#if this.custom}}<i class="fas fa-star lm-pl-star"></i> {{/if}}{{this.name}}</div>
               <div class="lm-pl-count">{{this.trackCount}} треков</div>
             </div>
             <button class="lm-pl-del" title="Удалить"><i class="fas fa-times"></i></button>
@@ -100,6 +100,11 @@
                 <div class="lm-track-artist">{{this.artist}}</div>
               </div>
               <button class="lm-rename-btn" title="Переименовать"><i class="fas fa-pen"></i></button>
+              {{#if ../customView}}
+                <button class="lm-deltrack-btn" title="Убрать из плейлиста"><i class="fas fa-minus"></i></button>
+              {{else if (eq this.source 'youtube')}}
+                <button class="lm-addpl-btn" title="Добавить в свой плейлист"><i class="fas fa-plus"></i></button>
+              {{/if}}
             </div>
           {{/each}}
         {{else if playlist}}

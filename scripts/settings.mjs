@@ -15,6 +15,7 @@ const LS = {
   TRACK_NAMES:  'lazy-music-track-names',
   FAB_POS:      'lazy-music-fab-pos',
   SERVER_URL:   'lazy-music-server-url',
+  CUSTOM_PLS:   'lazy-music-custom-playlists',
 };
 
 export { MODULE_ID, LS };
@@ -120,6 +121,50 @@ export class LMSettings {
 
   static removePlaylist(source, id) {
     this.savePlaylists(source, this.getPlaylists(source).filter(p => p.id !== id));
+  }
+
+  // ── Свои плейлисты (собираются вручную, например из поиска) ──────────────
+  // Формат: [{ id: 'custom-…', name, tracks: [{id,title,artist,albumArt,source}] }]
+
+  static getCustomPlaylists() {
+    try { return JSON.parse(localStorage.getItem(LS.CUSTOM_PLS) || '[]'); } catch { return []; }
+  }
+
+  static saveCustomPlaylists(list) {
+    localStorage.setItem(LS.CUSTOM_PLS, JSON.stringify(list));
+  }
+
+  static createCustomPlaylist(name) {
+    const list = this.getCustomPlaylists();
+    const pl = { id: 'custom-' + Date.now().toString(36), name: name || 'Новый плейлист', tracks: [] };
+    list.push(pl);
+    this.saveCustomPlaylists(list);
+    return pl;
+  }
+
+  static deleteCustomPlaylist(id) {
+    this.saveCustomPlaylists(this.getCustomPlaylists().filter(p => p.id !== id));
+  }
+
+  /** Возвращает true, если трек добавлен (false — уже был в плейлисте). */
+  static addTrackToCustomPlaylist(plId, track) {
+    const list = this.getCustomPlaylists();
+    const pl = list.find(p => p.id === plId);
+    if (!pl || pl.tracks.some(t => t.id === track.id)) return false;
+    pl.tracks.push({
+      id: track.id, title: track.title, artist: track.artist || '',
+      albumArt: track.albumArt || '', source: track.source || 'youtube'
+    });
+    this.saveCustomPlaylists(list);
+    return true;
+  }
+
+  static removeTrackFromCustomPlaylist(plId, trackId) {
+    const list = this.getCustomPlaylists();
+    const pl = list.find(p => p.id === plId);
+    if (!pl) return;
+    pl.tracks = pl.tracks.filter(t => t.id !== trackId);
+    this.saveCustomPlaylists(list);
   }
 
   // ── Переименования треков ─────────────────────────────────────────────────
