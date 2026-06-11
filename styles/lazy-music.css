@@ -347,3 +347,11 @@ button.lm-panel-btn i { animation: lm-spin 6s linear infinite; }
   border-radius: 6px; width: 34px; height: 26px; cursor: pointer; line-height: 1;
 }
 .lm-mini-transport button:hover { border-color: #c9a84c; color: #c9a84c; }
+
+/* Кнопка очистки кэша в шапке */
+.lm-cache-btn {
+  background: transparent; border: 1px solid #2a2a3e; border-radius: 6px;
+  color: #8a8270; width: 30px; height: 26px; cursor: pointer; line-height: 1;
+  margin-left: auto; margin-right: 8px; flex: 0 0 auto;
+}
+.lm-cache-btn:hover { border-color: #c9a84c; color: #c9a84c; }

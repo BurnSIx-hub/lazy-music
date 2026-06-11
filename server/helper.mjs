@@ -19,6 +19,8 @@
  *   GET /api/ping                  → { ok: true }
  *   GET /api/yt/ensure?id=<vid>    → { ready: true, url: "modules/lazy-music/cache/<vid>.m4a" }
  *   GET /api/yt/prefetch?id=<vid>  → { started: true }   (скачивание в фоне)
+ *   GET /api/cache/status          → { files: n, bytes: n }
+ *   GET /api/cache/clear           → { cleared: n, freed: bytes }
  */
 
 const PORT  = 8766;
@@ -179,6 +181,36 @@ async function handler(req) {
     if (!ID_RE.test(id)) return json({ started: false }, 400);
     download(id).catch(() => {});
     return json({ started: true });
+  }
+
+  if (u.pathname === '/api/cache/status') {
+    let files = 0, bytes = 0;
+    try {
+      for (const e of Deno.readDirSync(CACHE)) {
+        if (!e.isFile) continue;
+        files++;
+        try { bytes += Deno.statSync(`${CACHE}\\${e.name}`).size; } catch {}
+      }
+    } catch {}
+    return json({ files, bytes });
+  }
+
+  if (u.pathname === '/api/cache/clear') {
+    let cleared = 0, freed = 0;
+    try {
+      for (const e of [...Deno.readDirSync(CACHE)]) {
+        if (!e.isFile) continue;
+        const p = `${CACHE}\\${e.name}`;
+        try {
+          const size = Deno.statSync(p).size;
+          Deno.removeSync(p);
+          cleared++;
+          freed += size;
+        } catch {} // файл занят (играет прямо сейчас) — пропускаем
+      }
+    } catch {}
+    log(`🧹 Кэш очищен вручную: ${cleared} файлов, ${(freed / 1048576).toFixed(0)} МБ`);
+    return json({ cleared, freed });
   }
 
   return json({ error: 'not found' }, 404);

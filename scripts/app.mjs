@@ -207,6 +207,7 @@ export class LMApp extends HandlebarsApp {
     on('#lm-sp-login',        'click', () => SpotifyAPI.startOAuth());
     on('#lm-sp-logout',       'click', () => this._spLogout());
     on('#lm-sync-toggle',     'change', e => LMSettings.set('syncToPlayers', e.target.checked));
+    on('#lm-clear-cache',     'click', () => this._clearCache());
     on('#lm-gm-vol-slider',   'input',  e => this._setGMVolume(parseFloat(e.target.value)));
 
     // Progress bar drag
@@ -379,19 +380,65 @@ export class LMApp extends HandlebarsApp {
   _relaySources() {
     const h = LMApp.HELPER_URL;
     const sources = [{
-      name:     'помощник',
-      ensure:   id => `${h}/api/yt/ensure?id=${encodeURIComponent(id)}`,
-      prefetch: id => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
-      resolve:  d  => d.url
+      name:        'помощник',
+      ensure:      id => `${h}/api/yt/ensure?id=${encodeURIComponent(id)}`,
+      prefetch:    id => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
+      cacheStatus: () => `${h}/api/cache/status`,
+      cacheClear:  () => `${h}/api/cache/clear`,
+      resolve:     d  => d.url
     }];
     const server = this._serverUrl();
     if (server) sources.push({
-      name:     'сервер',
-      ensure:   id => `${server}/api/yt/ensure?id=${encodeURIComponent(id)}`,
-      prefetch: id => `${server}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
-      resolve:  d  => server + d.url
+      name:        'сервер',
+      ensure:      id => `${server}/api/yt/ensure?id=${encodeURIComponent(id)}`,
+      prefetch:    id => `${server}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
+      cacheStatus: () => `${server}/api/cache/status`,
+      cacheClear:  () => `${server}/api/cache/clear`,
+      resolve:     d  => server + d.url
     });
     return sources;
+  }
+
+  // ── Очистка кэша скачанной музыки (кнопка-метла в шапке) ──────────────────
+  async _clearCache() {
+    for (const s of this._relaySources()) {
+      let st;
+      try {
+        const res = await fetch(s.cacheStatus());
+        st = await res.json();
+        if (!res.ok) continue;
+      } catch { continue; } // источник не отвечает — пробуем следующий
+
+      const mb = (st.bytes / 1048576).toFixed(0);
+      if (!st.files) {
+        ui.notifications.info('Lazy Music: кэш уже пуст.');
+        return;
+      }
+
+      const msg = `Удалить скачанную музыку с диска? В кэше ${st.files} файлов (${mb} МБ). Треки заново скачаются при следующем воспроизведении.`;
+      let ok;
+      if (foundry.applications?.api?.DialogV2) {
+        ok = await foundry.applications.api.DialogV2.confirm({
+          window: { title: 'Очистка кэша' },
+          content: `<p>${msg}</p>`
+        }).catch(() => false);
+      } else {
+        ok = await Dialog.confirm({ title: 'Очистка кэша', content: `<p>${msg}</p>` }).catch(() => false);
+      }
+      if (!ok) return;
+
+      try {
+        const data = await (await fetch(s.cacheClear())).json();
+        const freedMb = (data.freed / 1048576).toFixed(0);
+        const skipped = st.files - data.cleared;
+        ui.notifications.info(`Lazy Music: удалено ${data.cleared} файлов (${freedMb} МБ)` +
+          (skipped > 0 ? `, ${skipped} пропущено (заняты — играют сейчас)` : ''));
+      } catch (e) {
+        ui.notifications.error('Lazy Music: не удалось очистить кэш — ' + (e?.message ?? e));
+      }
+      return;
+    }
+    ui.notifications.warn('Lazy Music: помощник не запущен — кэш чистить некому. Запустите Foundry ярлыком «Foundry VTT (с музыкой)».');
   }
 
   async _playViaRelay(videoId) {
