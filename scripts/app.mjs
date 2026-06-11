@@ -10,6 +10,10 @@ import { LMMini }       from './mini-player.mjs';
 
 const MODULE_ID = 'lazy-music';
 
+// Локализация: строки в lang/ru.json и lang/en.json (ключи LAZYMUSIC.*)
+const L  = (k)    => game.i18n.localize(`LAZYMUSIC.${k}`);
+const LF = (k, d) => game.i18n.format(`LAZYMUSIC.${k}`, d);
+
 // Статический плеер — один на сессию
 let _ytPlayer    = null;
 let _ytReady     = false;
@@ -283,18 +287,18 @@ export class LMApp extends HandlebarsApp {
 
   // ── Playlists ─────────────────────────────────────────────────────────────
   async _addPlaylistDialog() {
-    const label = this.source === 'youtube' ? 'YouTube Playlist URL или ID' : 'Spotify Playlist URL или ID';
+    const label = this.source === 'youtube' ? L('PlaylistUrlYT') : L('PlaylistUrlSP');
     let url;
     // v14 DialogV2
     if (foundry.applications?.api?.DialogV2) {
       url = await foundry.applications.api.DialogV2.prompt({
-        window: { title: 'Добавить плейлист' },
+        window: { title: L('AddPlaylist') },
         content: `<div style="padding:8px"><label>${label}</label><input type="text" name="url" style="width:100%;margin-top:4px;background:#1a1a24;border:1px solid #2a2a3e;color:#e8e0d0;padding:5px 8px;border-radius:4px;" autofocus></div>`,
         ok: { callback: (event) => event.target.closest('form')?.querySelector('[name=url]')?.value?.trim() ?? event.target.form?.url?.value?.trim() ?? '' }
       }).catch(() => null);
     } else {
       url = await Dialog.prompt({
-        title: 'Добавить плейлист',
+        title: L('AddPlaylist'),
         content: `<div class="form-group"><label>${label}</label><input type="text" id="pl-url" style="width:100%"></div>`,
         callback: h => h.find('#pl-url').val()?.trim(),
         rejectClose: false
@@ -373,20 +377,20 @@ export class LMApp extends HandlebarsApp {
     const esc = (s) => foundry.utils.escapeHTML(String(s || ''));
     const customs = LMSettings.getCustomPlaylists();
     const options = customs.map(p => `<option value="${p.id}">${esc(p.name)} (${p.tracks.length})</option>`).join('')
-      + `<option value="__new__"${customs.length ? '' : ' selected'}>— Новый плейлист —</option>`;
+      + `<option value="__new__"${customs.length ? '' : ' selected'}>${L('NewPlaylistOption')}</option>`;
     const inputStyle = 'width:100%;margin-top:4px;background:#1a1a24;border:1px solid #2a2a3e;color:#e8e0d0;padding:5px 8px;border-radius:4px;';
     const content = `<div style="padding:8px">
       <div style="margin-bottom:8px;color:#8a8270;font-size:12px;">${esc(track.displayTitle || track.title)}</div>
-      <label>В какой плейлист</label>
+      <label>${L('WhichPlaylist')}</label>
       <select name="pl" style="${inputStyle}">${options}</select>
-      <label style="display:block;margin-top:8px;">Название нового (если выбран «Новый»)</label>
-      <input type="text" name="newname" placeholder="Например: Бой, Таверна..." style="${inputStyle}">
+      <label style="display:block;margin-top:8px;">${L('NewPlaylistName')}</label>
+      <input type="text" name="newname" placeholder="${L('NewPlaylistPlaceholder')}" style="${inputStyle}">
     </div>`;
 
     let result;
     if (foundry.applications?.api?.DialogV2) {
       result = await foundry.applications.api.DialogV2.prompt({
-        window: { title: 'Добавить в свой плейлист' },
+        window: { title: L('AddToCustom') },
         content,
         ok: { callback: (event) => {
           const form = event.target.closest('form') ?? event.target.form;
@@ -395,7 +399,7 @@ export class LMApp extends HandlebarsApp {
       }).catch(() => null);
     } else {
       result = await Dialog.prompt({
-        title: 'Добавить в свой плейлист',
+        title: L('AddToCustom'),
         content,
         callback: h => ({ pl: h.find('[name=pl]').val(), newname: h.find('[name=newname]').val()?.trim() }),
         rejectClose: false
@@ -413,7 +417,7 @@ export class LMApp extends HandlebarsApp {
     const plName = LMSettings.getCustomPlaylists().find(p => p.id === plId)?.name ?? '';
     ui.notifications.info(added
       ? `«${track.displayTitle || track.title}» → «${plName}»`
-      : `Этот трек уже есть в «${plName}»`);
+      : LF('AlreadyInPlaylist', { name: plName }));
     this._refreshPlaylists();
     this.render(false);
   }
@@ -509,19 +513,19 @@ export class LMApp extends HandlebarsApp {
 
       const mb = (st.bytes / 1048576).toFixed(0);
       if (!st.files) {
-        ui.notifications.info('Lazy Music: кэш уже пуст.');
+        ui.notifications.info(L('CacheEmpty'));
         return;
       }
 
-      const msg = `Удалить скачанную музыку с диска? В кэше ${st.files} файлов (${mb} МБ). Треки заново скачаются при следующем воспроизведении.`;
+      const msg = LF('CacheConfirm', { files: st.files, mb });
       let ok;
       if (foundry.applications?.api?.DialogV2) {
         ok = await foundry.applications.api.DialogV2.confirm({
-          window: { title: 'Очистка кэша' },
+          window: { title: L('CacheTitle') },
           content: `<p>${msg}</p>`
         }).catch(() => false);
       } else {
-        ok = await Dialog.confirm({ title: 'Очистка кэша', content: `<p>${msg}</p>` }).catch(() => false);
+        ok = await Dialog.confirm({ title: L('CacheTitle'), content: `<p>${msg}</p>` }).catch(() => false);
       }
       if (!ok) return;
 
@@ -529,20 +533,20 @@ export class LMApp extends HandlebarsApp {
         const data = await (await fetch(s.cacheClear())).json();
         const freedMb = (data.freed / 1048576).toFixed(0);
         const skipped = st.files - data.cleared;
-        ui.notifications.info(`Lazy Music: удалено ${data.cleared} файлов (${freedMb} МБ)` +
-          (skipped > 0 ? `, ${skipped} пропущено (заняты — играют сейчас)` : ''));
+        ui.notifications.info(LF('CacheCleared', { files: data.cleared, mb: freedMb }) +
+          (skipped > 0 ? LF('CacheSkipped', { n: skipped }) : ''));
       } catch (e) {
-        ui.notifications.error('Lazy Music: не удалось очистить кэш — ' + (e?.message ?? e));
+        ui.notifications.error(LF('CacheError', { error: e?.message ?? e }));
       }
       return;
     }
-    ui.notifications.warn('Lazy Music: помощник не запущен — кэш чистить некому. Запустите Foundry ярлыком «Foundry VTT (с музыкой)».');
+    ui.notifications.warn(L('HelperDownCache'));
   }
 
   async _playViaRelay(videoId) {
     // Если качается дольше 1.5 сек — показываем уведомление
     const notify = setTimeout(() =>
-      ui.notifications.info('⏬ Кэширую трек с YouTube…'), 1500);
+      ui.notifications.info(L('Caching')), 1500);
 
     let url = null, source = null;
     for (const s of this._relaySources()) {
@@ -564,7 +568,7 @@ export class LMApp extends HandlebarsApp {
       // Ни помощник, ни сервер не ответили — играем по-старому через YouTube
       if (!this._relayWarned) {
         this._relayWarned = true;
-        ui.notifications.warn('Lazy Music: помощник не запущен — играю напрямую через YouTube (у игроков с VPN возможна ошибка 150). Запускайте Foundry ярлыком «Foundry VTT (с музыкой)».');
+        ui.notifications.warn(L('HelperFallback'));
       }
       this.relayMode = false;
       this._relayUrl = null;
@@ -650,7 +654,7 @@ export class LMApp extends HandlebarsApp {
     if (this._errorHandling) return;
     this._errorHandling = true;
     const name = this.track?.displayTitle || this.track?.title || 'Unknown';
-    ui.notifications.warn(`⛔ "${name}" — ошибка воспроизведения с сервера. Пропускаю...`);
+    ui.notifications.warn(LF('StreamError', { name }));
     setTimeout(() => { this._errorHandling = false; this._next(); }, 1200);
   }
 
@@ -771,7 +775,7 @@ export class LMApp extends HandlebarsApp {
     this._errorHandling = true;
 
     const name = this.track?.displayTitle || this.track?.title || 'Unknown';
-    const msgs = { 150: 'встраивание запрещено', 101: 'встраивание запрещено', 100: 'видео недоступно' };
+    const msgs = { 150: L('ErrEmbed'), 101: L('ErrEmbed'), 100: L('ErrUnavailable') };
 
     // Инициализируем список пропущенных если нет
     if (!this._skippedIds) this._skippedIds = new Set();
@@ -781,12 +785,12 @@ export class LMApp extends HandlebarsApp {
     if (this._skippedIds.size >= this.tracks.length) {
       this._skippedIds.clear();
       this._errorHandling = false;
-      ui.notifications.error('⛔ Все треки в плейлисте недоступны. YouTube запрещает встраивание. Попробуйте другой плейлист.');
+      ui.notifications.error(L('AllTracksBlocked'));
       this._stop();
       return;
     }
 
-    ui.notifications.warn(`⛔ "${name}" — ${msgs[e.data] || 'ошибка ' + e.data}. Пропускаю...`);
+    ui.notifications.warn(LF('TrackSkip', { name, reason: msgs[e.data] || LF('ErrCode', { code: e.data }) }));
 
     // Задержка перед следующим треком — предотвращает быстрый цикл
     setTimeout(() => {
@@ -815,18 +819,18 @@ export class LMApp extends HandlebarsApp {
     if (foundry.applications?.api?.DialogV2) {
       const esc = (s) => foundry.utils.escapeHTML(String(s || ''));
       name = await foundry.applications.api.DialogV2.prompt({
-        window: { title: 'Переименовать трек' },
+        window: { title: L('RenameTrack') },
         content: `<div style="padding:8px">
-          <label>Новое название</label>
+          <label>${L('NewName')}</label>
           <input type="text" name="name" value="${esc(cur)}" style="width:100%;margin-top:4px;background:#1a1a24;border:1px solid #2a2a3e;color:#e8e0d0;padding:5px 8px;border-radius:4px;" autofocus>
-          <div style="margin-top:6px;font-size:11px;color:#8a8270;">Оригинал: ${esc(track.title)}</div>
+          <div style="margin-top:6px;font-size:11px;color:#8a8270;">${L('Original')} ${esc(track.title)}</div>
         </div>`,
         ok: { callback: (event) => event.target.closest('form')?.querySelector('[name=name]')?.value?.trim() ?? event.target.form?.name?.value?.trim() ?? '' }
       }).catch(() => null);
     } else {
       name = await Dialog.prompt({
-        title: 'Переименовать трек',
-        content: `<div class="form-group"><label>Новое название</label><input type="text" id="rn" value="${cur}" style="width:100%"></div><p style="font-size:11px;color:#8a8270;">Оригинал: ${track.title}</p>`,
+        title: L('RenameTrack'),
+        content: `<div class="form-group"><label>${L('NewName')}</label><input type="text" id="rn" value="${cur}" style="width:100%"></div><p style="font-size:11px;color:#8a8270;">${L('Original')} ${track.title}</p>`,
         callback: h => h.find('#rn').val()?.trim(),
         rejectClose: false
       }).catch(() => null);

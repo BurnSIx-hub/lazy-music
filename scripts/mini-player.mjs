@@ -35,6 +35,7 @@ export const LMMini = {
     if (this.el) return;
     const isGM = game.user.isGM;
 
+    const T = (k) => game.i18n.localize(`LAZYMUSIC.${k}`);
     const el = document.createElement('div');
     el.id = 'lm-mini';
     el.classList.add('hidden');
@@ -44,16 +45,16 @@ export const LMMini = {
         <div class="lm-mini-title" title=""></div>
         ${isGM ? `
         <div class="lm-mini-row lm-mini-transport">
-          <button type="button" data-act="prev"   title="Предыдущий"><i class="fas fa-backward-step"></i></button>
-          <button type="button" data-act="toggle" title="Пауза / играть"><i class="fas fa-pause"></i></button>
-          <button type="button" data-act="next"   title="Следующий"><i class="fas fa-forward-step"></i></button>
+          <button type="button" data-act="prev"   title="${T('Prev')}"><i class="fas fa-backward-step"></i></button>
+          <button type="button" data-act="toggle" title="${T('PlayPause')}"><i class="fas fa-pause"></i></button>
+          <button type="button" data-act="next"   title="${T('Next')}"><i class="fas fa-forward-step"></i></button>
         </div>` : ''}
-        <div class="lm-mini-row" title="Моя громкость">
+        <div class="lm-mini-row" title="${T('MyVolume')}">
           <i class="fas fa-headphones"></i>
           <input type="range" class="lm-mini-vol-me" min="0" max="1" step="0.01">
         </div>
         ${isGM ? `
-        <div class="lm-mini-row" title="Громкость у всех игроков">
+        <div class="lm-mini-row" title="${T('GMVolumeTooltip')}">
           <i class="fas fa-tower-broadcast"></i>
           <input type="range" class="lm-mini-vol-all" min="0" max="1" step="0.01">
         </div>` : ''}

@@ -136,7 +136,7 @@ export class LMSettings {
 
   static createCustomPlaylist(name) {
     const list = this.getCustomPlaylists();
-    const pl = { id: 'custom-' + Date.now().toString(36), name: name || 'Новый плейлист', tracks: [] };
+    const pl = { id: 'custom-' + Date.now().toString(36), name: name || game.i18n.localize('LAZYMUSIC.NewCustomPlaylist'), tracks: [] };
     list.push(pl);
     this.saveCustomPlaylists(list);
     return pl;

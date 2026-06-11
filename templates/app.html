@@ -12,7 +12,7 @@
         <i class="fab fa-spotify"></i> Spotify
       </button>
     </div>
-    <button id="lm-clear-cache" class="lm-cache-btn" title="Очистить кэш скачанной музыки на диске">
+    <button id="lm-clear-cache" class="lm-cache-btn" title="{{localize 'LAZYMUSIC.ClearCacheTooltip'}}">
       <i class="fas fa-broom"></i>
     </button>
     <label class="lm-sync">
@@ -26,20 +26,20 @@
     {{!-- Sidebar --}}
     <div class="lm-sidebar">
       <div class="lm-sidebar-head">
-        <span>Плейлисты</span>
+        <span>{{localize 'LAZYMUSIC.Playlists'}}</span>
         <button id="lm-add-playlist"><i class="fas fa-plus"></i></button>
       </div>
 
       {{#if (eq source 'spotify')}}
         {{#if spLoggedIn}}
           <button id="lm-sp-logout" class="lm-sp-btn lm-sp-logout">
-            <i class="fab fa-spotify"></i> Отключить
+            <i class="fab fa-spotify"></i> {{localize 'LAZYMUSIC.Disconnect'}}
           </button>
         {{else}}
           <div class="lm-auth-prompt">
             <i class="fab fa-spotify"></i>
-            <p>Подключите Spotify</p>
-            <button id="lm-sp-login" class="lm-sp-btn lm-sp-login">Войти</button>
+            <p>{{localize 'LAZYMUSIC.ConnectSpotify'}}</p>
+            <button id="lm-sp-login" class="lm-sp-btn lm-sp-login">{{localize 'LAZYMUSIC.Login'}}</button>
           </div>
         {{/if}}
       {{/if}}
@@ -48,7 +48,7 @@
         {{#unless ytApiKey}}
           <div class="lm-auth-prompt">
             <i class="fab fa-youtube"></i>
-            <p>Укажите YouTube API key в настройках модуля</p>
+            <p>{{localize 'LAZYMUSIC.NeedApiKey'}}</p>
           </div>
         {{/unless}}
       {{/if}}
@@ -63,9 +63,9 @@
             {{/if}}
             <div class="lm-pl-info">
               <div class="lm-pl-name">{{#if this.custom}}<i class="fas fa-star lm-pl-star"></i> {{/if}}{{this.name}}</div>
-              <div class="lm-pl-count">{{this.trackCount}} треков</div>
+              <div class="lm-pl-count">{{this.trackCount}} {{localize 'LAZYMUSIC.Tracks'}}</div>
             </div>
-            <button class="lm-pl-del" title="Удалить"><i class="fas fa-times"></i></button>
+            <button class="lm-pl-del" title="{{localize 'LAZYMUSIC.Delete'}}"><i class="fas fa-times"></i></button>
           </div>
         {{/each}}
       </div>
@@ -75,7 +75,7 @@
     <div class="lm-content">
       <div class="lm-search">
         <i class="fas fa-search"></i>
-        <input type="text" id="lm-search-input" placeholder="Поиск треков...">
+        <input type="text" id="lm-search-input" placeholder="{{localize 'LAZYMUSIC.SearchPlaceholder'}}">
         <button id="lm-search-btn"><i class="fas fa-search"></i></button>
         {{#if searchMode}}<button id="lm-clear-search"><i class="fas fa-times"></i></button>{{/if}}
       </div>
@@ -99,20 +99,20 @@
                 </div>
                 <div class="lm-track-artist">{{this.artist}}</div>
               </div>
-              <button class="lm-rename-btn" title="Переименовать"><i class="fas fa-pen"></i></button>
+              <button class="lm-rename-btn" title="{{localize 'LAZYMUSIC.Rename'}}"><i class="fas fa-pen"></i></button>
               {{#if ../customView}}
-                <button class="lm-deltrack-btn" title="Убрать из плейлиста"><i class="fas fa-minus"></i></button>
+                <button class="lm-deltrack-btn" title="{{localize 'LAZYMUSIC.RemoveFromPlaylist'}}"><i class="fas fa-minus"></i></button>
               {{else if (eq this.source 'youtube')}}
-                <button class="lm-addpl-btn" title="Добавить в свой плейлист"><i class="fas fa-plus"></i></button>
+                <button class="lm-addpl-btn" title="{{localize 'LAZYMUSIC.AddToCustom'}}"><i class="fas fa-plus"></i></button>
               {{/if}}
             </div>
           {{/each}}
         {{else if playlist}}
-          <div class="lm-empty"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
+          <div class="lm-empty"><i class="fas fa-spinner fa-spin"></i> {{localize 'LAZYMUSIC.Loading'}}</div>
         {{else}}
           <div class="lm-empty">
             <i class="fas fa-music"></i>
-            <p>Выберите плейлист или найдите треки</p>
+            <p>{{localize 'LAZYMUSIC.ChoosePlaylist'}}</p>
           </div>
         {{/if}}
       </div>
@@ -133,7 +133,7 @@
           <div class="lm-np-artist">{{track.artist}}</div>
         </div>
       {{else}}
-        <div class="lm-no-track">Ничего не играет</div>
+        <div class="lm-no-track">{{localize 'LAZYMUSIC.NothingPlaying'}}</div>
       {{/if}}
     </div>
 
@@ -144,22 +144,22 @@
         <span id="lm-time-tot">0:00</span>
       </div>
       <div class="lm-btns">
-        <button id="lm-shuffle" class="lm-btn {{#if shuffle}}active{{/if}}" title="Случайный"><i class="fas fa-random"></i></button>
-        <button id="lm-prev"    class="lm-btn" title="Предыдущий"><i class="fas fa-step-backward"></i></button>
+        <button id="lm-shuffle" class="lm-btn {{#if shuffle}}active{{/if}}" title="{{localize 'LAZYMUSIC.Shuffle'}}"><i class="fas fa-random"></i></button>
+        <button id="lm-prev"    class="lm-btn" title="{{localize 'LAZYMUSIC.Prev'}}"><i class="fas fa-step-backward"></i></button>
         <button id="lm-play-pause" class="lm-btn lm-play" title="Play/Pause">
           <i class="fas {{#if playing}}fa-pause{{else}}fa-play{{/if}}"></i>
         </button>
-        <button id="lm-next"   class="lm-btn" title="Следующий"><i class="fas fa-step-forward"></i></button>
-        <button id="lm-repeat" class="lm-btn {{#if repeat}}active{{/if}}" title="Повтор"><i class="fas fa-redo"></i></button>
-        <button id="lm-stop"   class="lm-btn lm-stop" title="Стоп"><i class="fas fa-stop"></i></button>
+        <button id="lm-next"   class="lm-btn" title="{{localize 'LAZYMUSIC.Next'}}"><i class="fas fa-step-forward"></i></button>
+        <button id="lm-repeat" class="lm-btn {{#if repeat}}active{{/if}}" title="{{localize 'LAZYMUSIC.Repeat'}}"><i class="fas fa-redo"></i></button>
+        <button id="lm-stop"   class="lm-btn lm-stop" title="{{localize 'LAZYMUSIC.Stop'}}"><i class="fas fa-stop"></i></button>
       </div>
     </div>
 
     <div class="lm-gm-vol">
-      <div class="lm-gm-vol-label" title="Общая громкость для всех игроков">
+      <div class="lm-gm-vol-label" title="{{localize 'LAZYMUSIC.GMVolumeTooltip'}}">
         <i class="fas fa-users"></i>
       </div>
-      <input type="range" id="lm-gm-vol-slider" min="0" max="1" step="0.01" value="{{gmVolume}}" title="Громкость для всех игроков">
+      <input type="range" id="lm-gm-vol-slider" min="0" max="1" step="0.01" value="{{gmVolume}}" title="{{localize 'LAZYMUSIC.GMVolumeTooltip'}}">
       <span id="lm-gm-vol-pct">{{gmVolumePct}}%</span>
     </div>
   </div>

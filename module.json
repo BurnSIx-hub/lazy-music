@@ -2,7 +2,7 @@
   "id": "lazy-music",
   "title": "Lazy Music \u2014 YouTube & Spotify",
   "description": "Stream YouTube and Spotify music to your players. Integrated with Foundry's playlist panel.",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "compatibility": {
     "minimum": "13",
     "verified": "14"
@@ -10,7 +10,7 @@
   "url": "https://github.com/BurnSIx-hub/lazy-music",
   "bugs": "https://github.com/BurnSIx-hub/lazy-music/issues",
   "manifest": "https://github.com/BurnSIx-hub/lazy-music/releases/latest/download/module.json",
-  "download": "https://github.com/BurnSIx-hub/lazy-music/releases/download/v2.6.0/module.zip",
+  "download": "https://github.com/BurnSIx-hub/lazy-music/releases/download/v2.7.0/module.zip",
   "authors": [
     {
       "name": "Lazy Music"
