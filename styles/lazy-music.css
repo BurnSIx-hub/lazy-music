@@ -317,3 +317,33 @@ button.lm-panel-btn i { animation: lm-spin 6s linear infinite; }
   font-family: var(--lm-font);
   flex-shrink: 0;
 }
+
+/* ── Мини-плеер ──────────────────────────────────────────────────────────── */
+#lm-mini { position: fixed; z-index: 9999; display: flex; align-items: flex-start; gap: 6px; }
+#lm-mini.hidden { display: none; }
+.lm-mini-disc {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: #1a1a24; border: 1px solid #2a2a3e; color: #c9a84c;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; font-size: 18px; user-select: none; touch-action: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.lm-mini-disc:active { cursor: grabbing; }
+#lm-mini.playing .lm-mini-disc i { animation: lm-mini-spin 4s linear infinite; }
+@keyframes lm-mini-spin { to { transform: rotate(360deg); } }
+.lm-mini-panel {
+  display: none; min-width: 190px; max-width: 230px;
+  background: rgba(26,26,36,.95); border: 1px solid #2a2a3e; border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 2px 10px rgba(0,0,0,.5);
+}
+#lm-mini.open .lm-mini-panel { display: block; }
+.lm-mini-title { color: #e8e0d0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.lm-mini-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.lm-mini-row > i { color: #8a8270; width: 14px; text-align: center; font-size: 12px; flex: 0 0 auto; }
+.lm-mini-row input[type=range] { flex: 1; accent-color: #c9a84c; height: 14px; margin: 0; }
+.lm-mini-transport { justify-content: center; gap: 6px; }
+.lm-mini-transport button {
+  background: #232330; border: 1px solid #2a2a3e; color: #e8e0d0;
+  border-radius: 6px; width: 34px; height: 26px; cursor: pointer; line-height: 1;
+}
+.lm-mini-transport button:hover { border-color: #c9a84c; color: #c9a84c; }

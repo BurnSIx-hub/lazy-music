@@ -1,7 +1,9 @@
 /**
  * Lazy Music — Player Receiver
- * Основа: рабочая v14. Добавлено: setFoundryVolume, setGMVolume.
+ * Основа: рабочая v14. Добавлено: setFoundryVolume, setGMVolume, мини-плеер.
  */
+
+import { LMMini } from './mini-player.mjs';
 
 // Громкость: итоговая = foundryVol * gmVol
 let ytPlayer    = null;
@@ -34,6 +36,7 @@ export class PlayerReceiver {
     foundryVol = Math.max(0, Math.min(1, vol));
     ytPlayer?.setVolume?.(_effectiveVol());
     _applyAudioVol();
+    LMMini.syncPersonal(foundryVol);
   }
 
   // Мастер-громкость от GM для всех
@@ -62,12 +65,14 @@ export class PlayerReceiver {
 
     PlayerReceiver._showBanner(payload);
     window._lmCurrentTrack = payload;
+    if (!game.user.isGM) LMMini.update({ title: payload.displayTitle || payload.title || '', playing: true });
   }
 
   static pause() {
     PlayerReceiver._intentionalPause = true;
     if (mode === 'stream') audioEl?.pause();
     else ytPlayer?.pauseVideo?.();
+    if (!game.user.isGM) LMMini.setPlaying(false);
   }
 
   static stop() {
@@ -77,6 +82,7 @@ export class PlayerReceiver {
     if (audioEl) { audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load(); }
     PlayerReceiver._hideBanner();
     window._lmCurrentTrack = null;
+    if (!game.user.isGM) LMMini.stop();
   }
 
   static seek(position) {

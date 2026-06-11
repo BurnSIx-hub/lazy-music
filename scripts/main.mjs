@@ -6,6 +6,7 @@ import { LMApp }         from './app.mjs';
 import { LMSocket }       from './socket.mjs';
 import { LMSettings }     from './settings.mjs';
 import { PlayerReceiver } from './player-receiver.mjs';
+import { LMMini }         from './mini-player.mjs';
 
 Hooks.once('init', () => {
   console.log('Lazy Music | init');
@@ -30,6 +31,15 @@ Hooks.once('ready', () => {
     const el = ui.playlists?.element;
     if (el) _injectButton(ui.playlists, el);
   }
+
+  // Мини-плеер (у всех): личная громкость с ползунка применяется сразу,
+  // а в настройку Foundry пишется только по отпусканию (commit)
+  LMMini.onPersonal = (v, commit) => {
+    PlayerReceiver.setFoundryVolume(v);
+    if (game.user.isGM) LMApp._instance?.applyFoundryVolume(v);
+    if (commit) game.settings.set('core', 'globalPlaylistVolume', v).catch(() => {});
+  };
+  LMMini.init();
 
   // Применяем текущую громкость сразу
   _syncVol();

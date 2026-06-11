@@ -6,6 +6,7 @@ import { LMSettings }   from './settings.mjs';
 import { YouTubeAPI }   from './youtube-api.mjs';
 import { SpotifyAPI }   from './spotify-api.mjs';
 import { LMSocket }     from './socket.mjs';
+import { LMMini }       from './mini-player.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -539,6 +540,7 @@ export class LMApp extends HandlebarsApp {
     this.relayMode = false;
     this._relayUrl = null;
     this.playing = false; this.track = null; this.duration = 0;
+    LMMini.stop();
     LMSocket.emit('stop');
     this._stopProgress();
     this.render(false);
@@ -569,6 +571,7 @@ export class LMApp extends HandlebarsApp {
     el?.querySelector('#lm-gm-vol-pct') && (el.querySelector('#lm-gm-vol-pct').textContent = Math.round(this.gmVolume * 100) + '%');
     // Транслируем игрокам
     LMSocket.emit('gmvol', { vol: this.gmVolume });
+    LMMini.syncMaster(this.gmVolume);
     // Применяем к своему GM плееру тоже (умножаем на Foundry vol)
     const effective = this.gmVolume * this._getFoundryVol();
     getYTPlayer()?.setVolume?.(Math.round(effective * 100));
@@ -737,12 +740,14 @@ export class LMApp extends HandlebarsApp {
   }
 
   _updatePlayBtn() {
+    LMMini.setPlaying(this.playing);
     const el = this.element instanceof HTMLElement ? this.element : this.element?.[0];
     const icon = el?.querySelector('#lm-play-pause i');
     if (icon) { icon.className = 'fas ' + (this.playing ? 'fa-pause' : 'fa-play'); }
   }
 
   _updateNowPlaying() {
+    if (this.track) LMMini.update({ title: this.track.displayTitle || this.track.title || '', playing: true });
     const el = this.element instanceof HTMLElement ? this.element : this.element?.[0];
     if (!el || !this.track) return;
     const t = this.track;
@@ -763,3 +768,11 @@ export class LMApp extends HandlebarsApp {
     return super.close(options);
   }
 }
+
+// Кнопки мини-плеера у ГМ (см. mini-player.mjs — он не импортирует app.mjs сам)
+LMMini.gmControls = {
+  prev:   () => LMApp._instance?._prev(),
+  next:   () => LMApp._instance?._next(),
+  toggle: () => LMApp._instance?._togglePlay(),
+  master: (v) => LMApp._instance?._setGMVolume(v),
+};
