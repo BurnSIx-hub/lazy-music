@@ -20,7 +20,8 @@
  *   GET /api/yt/ensure?id=<vid>    → { ready: true, url: "modules/lazy-music/cache/<vid>.m4a" }
  *   GET /api/yt/prefetch?id=<vid>  → { started: true }   (скачивание в фоне)
  *   GET /api/cache/status          → { files: n, bytes: n }
- *   GET /api/cache/clear           → { cleared: n, freed: bytes }
+ *   POST /api/cache/clear          → { cleared: n, freed: bytes }
+ *   POST /api/cache/open           → { opened: true }    (открывает cache/ в Проводнике)
  */
 
 const PORT  = 8766;
@@ -150,37 +151,49 @@ async function _download(id) {
 
 // ── HTTP API ─────────────────────────────────────────────────────────────────
 
-function json(obj, status = 200) {
+function json(obj, status = 200, origin = null) {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  };
+  if (origin) headers['Access-Control-Allow-Origin'] = origin;
   return new Response(JSON.stringify(obj), {
     status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',   // GM-клиент стучится с другого порта (30000)
-      'Cache-Control': 'no-store',
-    },
+    headers,
   });
 }
 
 async function handler(req) {
   const u = new URL(req.url);
   const id = u.searchParams.get('id') ?? '';
+  const origin = req.headers.get('origin');
 
-  if (u.pathname === '/api/ping') return json({ ok: true });
+  // The helper is a local desktop companion. Do not expose its download and
+  // cache-management endpoints to arbitrary websites opened in the GM browser.
+  if (origin) {
+    let host = '';
+    try { host = new URL(origin).hostname; } catch {}
+    if (!['localhost', '127.0.0.1', '::1'].includes(host)) {
+      return json({ error: 'origin not allowed' }, 403);
+    }
+  }
+
+  if (u.pathname === '/api/ping') return json({ ok: true }, 200, origin);
 
   if (u.pathname === '/api/yt/ensure') {
-    if (!ID_RE.test(id)) return json({ ready: false, error: 'Некорректный ID видео' }, 400);
+    if (!ID_RE.test(id)) return json({ ready: false, error: 'Некорректный ID видео' }, 400, origin);
     try {
       const f = await download(id);
-      return json({ ready: true, url: `modules/lazy-music/cache/${f}` });
+      return json({ ready: true, url: `modules/lazy-music/cache/${f}` }, 200, origin);
     } catch (e) {
-      return json({ ready: false, error: String(e.message ?? e) }, 502);
+      return json({ ready: false, error: String(e.message ?? e) }, 502, origin);
     }
   }
 
   if (u.pathname === '/api/yt/prefetch') {
-    if (!ID_RE.test(id)) return json({ started: false }, 400);
+    if (!ID_RE.test(id)) return json({ started: false }, 400, origin);
     download(id).catch(() => {});
-    return json({ started: true });
+    return json({ started: true }, 200, origin);
   }
 
   if (u.pathname === '/api/cache/status') {
@@ -192,10 +205,11 @@ async function handler(req) {
         try { bytes += Deno.statSync(`${CACHE}\\${e.name}`).size; } catch {}
       }
     } catch {}
-    return json({ files, bytes });
+    return json({ files, bytes }, 200, origin);
   }
 
   if (u.pathname === '/api/cache/clear') {
+    if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405, origin);
     let cleared = 0, freed = 0;
     try {
       for (const e of [...Deno.readDirSync(CACHE)]) {
@@ -210,10 +224,26 @@ async function handler(req) {
       }
     } catch {}
     log(`🧹 Кэш очищен вручную: ${cleared} файлов, ${(freed / 1048576).toFixed(0)} МБ`);
-    return json({ cleared, freed });
+    return json({ cleared, freed }, 200, origin);
   }
 
-  return json({ error: 'not found' }, 404);
+  if (u.pathname === '/api/cache/open') {
+    if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405, origin);
+    try {
+      await Deno.mkdir(CACHE, { recursive: true });
+      new Deno.Command('explorer.exe', {
+        args: [CACHE],
+        stdin: 'null',
+        stdout: 'null',
+        stderr: 'null',
+      }).spawn();
+      return json({ opened: true }, 200, origin);
+    } catch (e) {
+      return json({ opened: false, error: String(e.message ?? e) }, 500, origin);
+    }
+  }
+
+  return json({ error: 'not found' }, 404, origin);
 }
 
 // ── Слежение за Foundry: закрыли Foundry → помощник выходит сам ──────────────

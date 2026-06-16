@@ -5,13 +5,11 @@
   <div class="lm-header">
     <div class="lm-logo"><i class="fas fa-music"></i> Lazy Music</div>
     <div class="lm-tabs">
-      <button class="lm-tab {{#if (eq source 'youtube')}}active{{/if}}" data-source="youtube">
-        <i class="fab fa-youtube"></i> YouTube
-      </button>
-      <button class="lm-tab {{#if (eq source 'spotify')}}active{{/if}}" data-source="spotify">
-        <i class="fab fa-spotify"></i> Spotify
-      </button>
+      <span class="lm-tab active"><i class="fab fa-youtube"></i> YouTube</span>
     </div>
+    <button id="lm-open-cache" class="lm-cache-btn" title="{{localize 'LAZYMUSIC.OpenCacheTooltip'}}">
+      <i class="fas fa-folder-open"></i>
+    </button>
     <button id="lm-clear-cache" class="lm-cache-btn" title="{{localize 'LAZYMUSIC.ClearCacheTooltip'}}">
       <i class="fas fa-broom"></i>
     </button>
@@ -30,28 +28,12 @@
         <button id="lm-add-playlist"><i class="fas fa-plus"></i></button>
       </div>
 
-      {{#if (eq source 'spotify')}}
-        {{#if spLoggedIn}}
-          <button id="lm-sp-logout" class="lm-sp-btn lm-sp-logout">
-            <i class="fab fa-spotify"></i> {{localize 'LAZYMUSIC.Disconnect'}}
-          </button>
-        {{else}}
-          <div class="lm-auth-prompt">
-            <i class="fab fa-spotify"></i>
-            <p>{{localize 'LAZYMUSIC.ConnectSpotify'}}</p>
-            <button id="lm-sp-login" class="lm-sp-btn lm-sp-login">{{localize 'LAZYMUSIC.Login'}}</button>
-          </div>
-        {{/if}}
-      {{/if}}
-
-      {{#if (eq source 'youtube')}}
-        {{#unless ytApiKey}}
-          <div class="lm-auth-prompt">
-            <i class="fab fa-youtube"></i>
-            <p>{{localize 'LAZYMUSIC.NeedApiKey'}}</p>
-          </div>
-        {{/unless}}
-      {{/if}}
+      {{#unless ytApiKey}}
+        <div class="lm-auth-prompt">
+          <i class="fab fa-youtube"></i>
+          <p>{{localize 'LAZYMUSIC.NeedApiKey'}}</p>
+        </div>
+      {{/unless}}
 
       <div class="lm-pl-list">
         {{#each playlists}}
@@ -89,8 +71,7 @@
                 <img src="{{this.albumArt}}" class="lm-track-art">
               {{else}}
                 <div class="lm-track-art lm-track-art-ph">
-                  {{#if (eq this.source 'youtube')}}<i class="fab fa-youtube"></i>{{/if}}
-                  {{#if (eq this.source 'spotify')}}<i class="fab fa-spotify"></i>{{/if}}
+                  <i class="fab fa-youtube"></i>
                 </div>
               {{/if}}
               <div class="lm-track-meta">
@@ -102,7 +83,7 @@
               <button class="lm-rename-btn" title="{{localize 'LAZYMUSIC.Rename'}}"><i class="fas fa-pen"></i></button>
               {{#if ../customView}}
                 <button class="lm-deltrack-btn" title="{{localize 'LAZYMUSIC.RemoveFromPlaylist'}}"><i class="fas fa-minus"></i></button>
-              {{else if (eq this.source 'youtube')}}
+              {{else}}
                 <button class="lm-addpl-btn" title="{{localize 'LAZYMUSIC.AddToCustom'}}"><i class="fas fa-plus"></i></button>
               {{/if}}
             </div>
@@ -146,7 +127,7 @@
       <div class="lm-btns">
         <button id="lm-shuffle" class="lm-btn {{#if shuffle}}active{{/if}}" title="{{localize 'LAZYMUSIC.Shuffle'}}"><i class="fas fa-random"></i></button>
         <button id="lm-prev"    class="lm-btn" title="{{localize 'LAZYMUSIC.Prev'}}"><i class="fas fa-step-backward"></i></button>
-        <button id="lm-play-pause" class="lm-btn lm-play" title="Play/Pause">
+        <button id="lm-play-pause" class="lm-btn lm-play" title="{{localize 'LAZYMUSIC.PlayPause'}}">
           <i class="fas {{#if playing}}fa-pause{{else}}fa-play{{/if}}"></i>
         </button>
         <button id="lm-next"   class="lm-btn" title="{{localize 'LAZYMUSIC.Next'}}"><i class="fas fa-step-forward"></i></button>

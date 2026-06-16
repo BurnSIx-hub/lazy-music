@@ -12,7 +12,6 @@
   --lm-gold:    #c9a84c;
   --lm-gold2:   #e8c87a;
   --lm-red:     #c0392b;
-  --lm-green:   #1db954;
   --lm-text:    #e8e0d0;
   --lm-dim:     #8a8270;
   --lm-hover:   #1e1e2e;
@@ -55,11 +54,9 @@
 .lm-header { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--lm-bg2); border-bottom:1px solid var(--lm-border); flex-shrink:0; }
 .lm-logo { font-family:var(--lm-font); font-size:13px; color:var(--lm-gold); letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; display:flex; align-items:center; gap:6px; }
 .lm-tabs { display:flex; gap:4px; flex:1; }
-.lm-tab { background:transparent; border:1px solid var(--lm-border); color:var(--lm-dim); padding:5px 14px; border-radius:var(--lm-r); cursor:pointer; font-family:var(--lm-body); font-size:13px; transition:all .2s; display:flex; align-items:center; gap:6px; }
-.lm-tab:hover { border-color:var(--lm-gold); color:var(--lm-text); background:var(--lm-glow); }
+.lm-tab { background:transparent; border:1px solid var(--lm-border); color:var(--lm-dim); padding:5px 14px; border-radius:var(--lm-r); font-family:var(--lm-body); font-size:13px; display:flex; align-items:center; gap:6px; }
 .lm-tab.active { background:var(--lm-glow); border-color:var(--lm-gold); color:var(--lm-gold); }
 .lm-tab .fab.fa-youtube { color:#ff4444; }
-.lm-tab .fab.fa-spotify { color:var(--lm-green); }
 .lm-sync { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--lm-dim); cursor:pointer; }
 .lm-sync input:checked + i { color:var(--lm-gold); }
 
@@ -74,14 +71,8 @@
 
 .lm-auth-prompt { padding:16px 12px; text-align:center; color:var(--lm-dim); font-size:12px; }
 .lm-auth-prompt i { font-size:28px; margin-bottom:8px; display:block; }
-.lm-auth-prompt .fab.fa-spotify { color:var(--lm-green); }
 .lm-auth-prompt .fab.fa-youtube { color:#ff4444; }
 .lm-auth-prompt p { margin:0 0 10px; line-height:1.4; }
-
-.lm-sp-btn { background:var(--lm-green); border:none; color:#000; padding:6px 12px; border-radius:var(--lm-r); cursor:pointer; font-family:var(--lm-font); font-size:11px; font-weight:600; margin:8px 12px; transition:all .2s; display:flex; align-items:center; gap:6px; }
-.lm-sp-btn:hover { filter:brightness(1.1); }
-.lm-sp-logout { background:none; border:1px solid var(--lm-border); color:var(--lm-dim); }
-.lm-sp-logout:hover { border-color:var(--lm-red); color:var(--lm-red); background:rgba(192,57,43,.1); }
 
 .lm-pl-list { overflow-y:auto; flex:1; padding:4px 0; }
 .lm-pl-list::-webkit-scrollbar { width:3px; }

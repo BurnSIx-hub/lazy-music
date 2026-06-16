@@ -8,9 +8,6 @@ const MODULE_ID = 'lazy-music';
 const LS = {
   YT_KEY:       'lazy-music-youtube-api-key',
   YT_PLAYLISTS: 'lazy-music-playlists-youtube',
-  SP_PLAYLISTS: 'lazy-music-playlists-spotify',
-  SP_CLIENT_ID: 'lazy-music-spotify-client-id',
-  SP_REDIRECT:  'lazy-music-spotify-redirect',
   SYNC:         'lazy-music-sync-to-players',
   TRACK_NAMES:  'lazy-music-track-names',
   FAB_POS:      'lazy-music-fab-pos',
@@ -27,8 +24,6 @@ export class LMSettings {
     // на ВСЕХ клиентов, и любой игрок мог бы прочитать секреты GM через консоль.
     const defs = [
       ['youtubeApiKey',    String,  '',    true,  'client', 'LAZYMUSIC.Settings.YouTubeApiKey',    'LAZYMUSIC.Settings.YouTubeApiKeyHint'],
-      ['spotifyClientId',  String,  '',    true,  'client', 'LAZYMUSIC.Settings.SpotifyClientId',  'LAZYMUSIC.Settings.SpotifyClientIdHint'],
-      ['spotifyRedirectUri', String, 'http://localhost:30000/modules/lazy-music/spotify-callback.html', true, 'client', 'LAZYMUSIC.Settings.SpotifyRedirectUri', 'LAZYMUSIC.Settings.SpotifyRedirectUriHint'],
       ['serverUrl',        String,  '',    true,  'client', 'LAZYMUSIC.Settings.ServerUrl',        'LAZYMUSIC.Settings.ServerUrlHint'],
       ['syncToPlayers',    Boolean, true,  true,  'world',  'LAZYMUSIC.Settings.SyncToPlayers',    'LAZYMUSIC.Settings.SyncToPlayersHint'],
     ];
@@ -40,8 +35,6 @@ export class LMSettings {
         onChange: (v) => this._lsSet(key, v)
       });
     }
-    // Скрытые
-    game.settings.register(MODULE_ID, 'spotifyToken', { scope: 'client', config: false, type: Object, default: null });
   }
 
   /**
@@ -60,15 +53,9 @@ export class LMSettings {
       if (!doc) continue;
       try {
         const val = JSON.parse(doc.value);
-        if (val) {
-          if (key === 'spotifyToken') {
-            if (!game.settings.get(MODULE_ID, 'spotifyToken')) {
-              await game.settings.set(MODULE_ID, 'spotifyToken', val);
-            }
-          } else {
-            const k = this._lsKey(key);
-            if (k && localStorage.getItem(k) === null) localStorage.setItem(k, val);
-          }
+        if (val && key === 'youtubeApiKey') {
+          const k = this._lsKey(key);
+          if (k && localStorage.getItem(k) === null) localStorage.setItem(k, val);
         }
       } catch { /* битое значение — просто удаляем */ }
       await doc.delete();
@@ -77,7 +64,7 @@ export class LMSettings {
   }
 
   static _lsKey(key) {
-    return { youtubeApiKey: LS.YT_KEY, spotifyClientId: LS.SP_CLIENT_ID, spotifyRedirectUri: LS.SP_REDIRECT, syncToPlayers: LS.SYNC, serverUrl: LS.SERVER_URL }[key];
+    return { youtubeApiKey: LS.YT_KEY, syncToPlayers: LS.SYNC, serverUrl: LS.SERVER_URL }[key];
   }
 
   static _lsSet(key, val) {
@@ -103,24 +90,24 @@ export class LMSettings {
   }
 
   // ── Плейлисты ─────────────────────────────────────────────────────────────
-  static getPlaylists(source) {
-    try { return JSON.parse(localStorage.getItem(source === 'youtube' ? LS.YT_PLAYLISTS : LS.SP_PLAYLISTS) || '[]'); } catch { return []; }
+  static getPlaylists() {
+    try { return JSON.parse(localStorage.getItem(LS.YT_PLAYLISTS) || '[]'); } catch { return []; }
   }
 
-  static savePlaylists(source, list) {
-    localStorage.setItem(source === 'youtube' ? LS.YT_PLAYLISTS : LS.SP_PLAYLISTS, JSON.stringify(list));
+  static savePlaylists(list) {
+    localStorage.setItem(LS.YT_PLAYLISTS, JSON.stringify(list));
   }
 
-  static addPlaylist(source, playlist) {
-    const list = this.getPlaylists(source);
+  static addPlaylist(playlist) {
+    const list = this.getPlaylists();
     if (!list.find(p => p.id === playlist.id)) {
       list.push(playlist);
-      this.savePlaylists(source, list);
+      this.savePlaylists(list);
     }
   }
 
-  static removePlaylist(source, id) {
-    this.savePlaylists(source, this.getPlaylists(source).filter(p => p.id !== id));
+  static removePlaylist(id) {
+    this.savePlaylists(this.getPlaylists().filter(p => p.id !== id));
   }
 
   // ── Свои плейлисты (собираются вручную, например из поиска) ──────────────
@@ -178,19 +165,5 @@ export class LMSettings {
     const map = this.getTrackNames();
     if (name) map[id] = name; else delete map[id];
     localStorage.setItem(LS.TRACK_NAMES, JSON.stringify(map));
-  }
-
-  // ── Spotify Token ─────────────────────────────────────────────────────────
-  static getSpotifyToken() {
-    try { return game.settings.get(MODULE_ID, 'spotifyToken'); } catch { return null; }
-  }
-
-  static async setSpotifyToken(token) {
-    try { await game.settings.set(MODULE_ID, 'spotifyToken', token); } catch {}
-  }
-
-  static spotifyLoggedIn() {
-    const t = this.getSpotifyToken();
-    return t && t.expires_at > Date.now();
   }
 }

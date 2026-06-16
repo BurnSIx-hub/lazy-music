@@ -4,7 +4,6 @@
 
 import { LMSettings }   from './settings.mjs';
 import { YouTubeAPI }   from './youtube-api.mjs';
-import { SpotifyAPI }   from './spotify-api.mjs';
 import { LMSocket }     from './socket.mjs';
 import { LMMini }       from './mini-player.mjs';
 
@@ -104,7 +103,6 @@ const HandlebarsApp = foundry.applications?.api?.HandlebarsApplicationMixin?.(Ap
 export class LMApp extends HandlebarsApp {
   constructor(options = {}) {
     super(options);
-    this.source       = 'youtube';
     this.playlists    = [];
     this.playlist     = null;
     this.tracks       = [];
@@ -122,7 +120,6 @@ export class LMApp extends HandlebarsApp {
     this._progressInterval = null;
     this._playLock    = false;
     this.gmVolume     = parseFloat(localStorage.getItem('lm-gm-vol') ?? '1');
-    this._oauthHandler = null;
     this.relayMode    = false; // true — текущий трек играет через наш сервер, не через YT-iframe
   }
 
@@ -166,15 +163,11 @@ export class LMApp extends HandlebarsApp {
   // Список плейлистов сайдбара: на вкладке YouTube сверху — свои (собранные
   // из поиска), затем обычные YouTube-плейлисты
   _refreshPlaylists() {
-    if (this.source === 'youtube') {
-      const custom = LMSettings.getCustomPlaylists().map(p => ({
-        id: p.id, name: p.name, trackCount: p.tracks.length,
-        image: p.tracks[0]?.albumArt || '', source: 'youtube', custom: true
-      }));
-      this.playlists = [...custom, ...LMSettings.getPlaylists('youtube')];
-    } else {
-      this.playlists = LMSettings.getPlaylists(this.source);
-    }
+    const custom = LMSettings.getCustomPlaylists().map(p => ({
+      id: p.id, name: p.name, trackCount: p.tracks.length,
+      image: p.tracks[0]?.albumArt || '', source: 'youtube', custom: true
+    }));
+    this.playlists = [...custom, ...LMSettings.getPlaylists()];
   }
 
   // ── Template data ─────────────────────────────────────────────────────────
@@ -183,7 +176,6 @@ export class LMApp extends HandlebarsApp {
 
   _getData() {
     return {
-      source: this.source,
       playlists: this.playlists,
       playlist: this.playlist,
       tracks: this.searchMode ? this.searchResults : this.tracks,
@@ -195,8 +187,7 @@ export class LMApp extends HandlebarsApp {
       repeat: this.repeat,
       ytApiKey: !!LMSettings.get('youtubeApiKey'),
       customView: !!this.playlist?.custom && !this.searchMode,
-      canAddToCustom: this.source === 'youtube' && !this.playlist?.custom,
-      spLoggedIn: LMSettings.spotifyLoggedIn(),
+      canAddToCustom: !this.playlist?.custom,
       syncToPlayers: LMSettings.get('syncToPlayers'),
       gmVolume:    this.gmVolume,
       gmVolumePct: Math.round(this.gmVolume * 100)
@@ -208,7 +199,6 @@ export class LMApp extends HandlebarsApp {
     const root = html instanceof HTMLElement ? html : html[0];
     const on = (sel, ev, fn) => root.querySelectorAll(sel).forEach(el => { el.removeEventListener(ev, el['_lm_' + sel + ev]); const h = fn.bind(this); el['_lm_' + sel + ev] = h; el.addEventListener(ev, h); });
 
-    on('[data-source]',       'click', e => this._setSource(e.currentTarget.dataset.source));
     on('#lm-add-playlist',    'click', () => this._addPlaylistDialog());
     on('.lm-pl-item',         'click', e => { if (!e.target.closest('.lm-pl-del')) this._loadPlaylist(e.currentTarget.dataset.id); });
     on('.lm-pl-del',          'click', e => { e.stopPropagation(); this._delPlaylist(e.currentTarget.closest('.lm-pl-item').dataset.id); });
@@ -226,9 +216,8 @@ export class LMApp extends HandlebarsApp {
     on('#lm-search-input',    'keydown', e => { if (e.key === 'Enter') this._search(e.target.value); });
     on('#lm-search-btn',      'click', () => this._search(root.querySelector('#lm-search-input')?.value));
     on('#lm-clear-search',    'click', () => { this.searchMode = false; this.searchResults = []; this.render(false); });
-    on('#lm-sp-login',        'click', () => SpotifyAPI.startOAuth());
-    on('#lm-sp-logout',       'click', () => this._spLogout());
-    on('#lm-sync-toggle',     'change', e => LMSettings.set('syncToPlayers', e.target.checked));
+    on('#lm-sync-toggle',     'change', e => this._setSync(e.target.checked));
+    on('#lm-open-cache',      'click', () => this._openCacheFolder());
     on('#lm-clear-cache',     'click', () => this._clearCache());
     on('#lm-gm-vol-slider',   'input',  e => this._setGMVolume(parseFloat(e.target.value)));
 
@@ -256,14 +245,6 @@ export class LMApp extends HandlebarsApp {
       });
     }
 
-    // OAuth callback
-    if (this._oauthHandler) window.removeEventListener('message', this._oauthHandler);
-    this._oauthHandler = async (e) => {
-      if (e.data?.type !== 'lm-spotify-callback') return;
-      try { await SpotifyAPI.exchangeCode(e.data.code); ui.notifications.info('Spotify connected!'); this.render(false); } catch (err) { ui.notifications.error('Spotify: ' + err.message); }
-    };
-    window.addEventListener('message', this._oauthHandler);
-
     // Init YT player
     initGMYTPlayer();
   }
@@ -273,21 +254,9 @@ export class LMApp extends HandlebarsApp {
   // v12/v13 hook
   activateListeners(html)     { super.activateListeners?.(html); this._attachListeners(html); }
 
-  // ── Source ────────────────────────────────────────────────────────────────
-  async _setSource(src) {
-    this.source = src;
-    this.playlist = null; this.tracks = []; this.searchMode = false; this.searchResults = [];
-    this._refreshPlaylists();
-    // Если есть сохранённый плейлист — восстанавливаем треки
-    if (src === 'spotify' && LMSettings.spotifyLoggedIn()) {
-      try { const pls = await SpotifyAPI.getUserPlaylists(); pls.forEach(p => LMSettings.addPlaylist('spotify', p)); this._refreshPlaylists(); } catch {}
-    }
-    this.render(false);
-  }
-
   // ── Playlists ─────────────────────────────────────────────────────────────
   async _addPlaylistDialog() {
-    const label = this.source === 'youtube' ? L('PlaylistUrlYT') : L('PlaylistUrlSP');
+    const label = L('PlaylistUrlYT');
     let url;
     // v14 DialogV2
     if (foundry.applications?.api?.DialogV2) {
@@ -305,39 +274,25 @@ export class LMApp extends HandlebarsApp {
       }).catch(() => null);
     }
     if (!url) return;
-    if (this.source === 'youtube') await this._addYTPlaylist(url);
-    else await this._addSPPlaylist(url);
+    await this._addYTPlaylist(url);
   }
 
   async _addYTPlaylist(url) {
     try {
-      ui.notifications.info('Loading playlist...');
+      ui.notifications.info(L('LoadingPlaylistInfo'));
       const id   = YouTubeAPI.extractPlaylistId(url);
       const info = await YouTubeAPI.getPlaylistInfo(id);
       const pl   = { id, name: info.snippet.title, trackCount: info.contentDetails.itemCount, image: info.snippet.thumbnails?.medium?.url || '', source: 'youtube' };
-      LMSettings.addPlaylist('youtube', pl);
+      LMSettings.addPlaylist(pl);
       this._refreshPlaylists();
       this.render(false);
-      ui.notifications.info(`"${pl.name}" added!`);
-    } catch (e) { ui.notifications.error('YouTube: ' + e.message); }
-  }
-
-  async _addSPPlaylist(url) {
-    try {
-      let id = url.trim();
-      if (id.includes('spotify.com'))            id = id.split('/playlist/')[1]?.split('?')[0];
-      else if (id.startsWith('spotify:playlist:')) id = id.split(':')[2];
-      const info = await SpotifyAPI.fetch(`/playlists/${id}?fields=id,name,images,tracks(total)`);
-      const pl = { id, name: info.name, trackCount: info.tracks.total, image: info.images?.[0]?.url || '', source: 'spotify' };
-      LMSettings.addPlaylist('spotify', pl);
-      this._refreshPlaylists();
-      this.render(false);
-    } catch (e) { ui.notifications.error('Spotify: ' + e.message); }
+      ui.notifications.info(LF('PlaylistAdded', { name: pl.name }));
+    } catch (e) { ui.notifications.error(LF('YouTubeError', { error: e.message })); }
   }
 
   _delPlaylist(id) {
     if (id.startsWith('custom-')) LMSettings.deleteCustomPlaylist(id);
-    else LMSettings.removePlaylist(this.source, id);
+    else LMSettings.removePlaylist(id);
     this._refreshPlaylists();
     if (this.playlist?.id === id) { this.playlist = null; this.tracks = []; }
     this.render(false);
@@ -360,11 +315,11 @@ export class LMApp extends HandlebarsApp {
       return;
     }
 
-    ui.notifications.info(`Loading "${pl.name}"...`);
+    ui.notifications.info(LF('LoadingPlaylist', { name: pl.name }));
     try {
-      this.tracks = this.source === 'youtube' ? await YouTubeAPI.getPlaylistItems(id) : await SpotifyAPI.getPlaylistTracks(id);
+      this.tracks = await YouTubeAPI.getPlaylistItems(id);
       this.render(false);
-    } catch (e) { ui.notifications.error('Load failed: ' + e.message); }
+    } catch (e) { ui.notifications.error(LF('LoadFailed', { error: e.message })); }
   }
 
   // ── Свои плейлисты: добавление/удаление треков ────────────────────────────
@@ -416,7 +371,7 @@ export class LMApp extends HandlebarsApp {
     const added = LMSettings.addTrackToCustomPlaylist(plId, track);
     const plName = LMSettings.getCustomPlaylists().find(p => p.id === plId)?.name ?? '';
     ui.notifications.info(added
-      ? `«${track.displayTitle || track.title}» → «${plName}»`
+      ? LF('TrackAdded', { track: track.displayTitle || track.title, playlist: plName })
       : LF('AlreadyInPlaylist', { name: plName }));
     this._refreshPlaylists();
     this.render(false);
@@ -431,6 +386,46 @@ export class LMApp extends HandlebarsApp {
     if (this.trackIdx > i) this.trackIdx--;
     this._refreshPlaylists();
     this.render(false);
+  }
+
+  // ── Player synchronization ───────────────────────────────────────────────
+
+  _syncEnabled() {
+    return !!LMSettings.get('syncToPlayers');
+  }
+
+  _currentPlaybackPayload() {
+    if (!this.track) return null;
+    const position = this.relayMode
+      ? (getGMAudio().currentTime || this.position || 0)
+      : (getYTPlayer()?.getCurrentTime?.() || this.position || 0);
+    const track = {
+      ...this.track,
+      videoId: this.track.id,
+      position,
+      title: this.track.displayTitle || this.track.title
+    };
+    if (this.relayMode) track.streamUrl = this._relayUrl || getGMAudio().src;
+    return { track, playing: this.playing };
+  }
+
+  _emitState(targetId = null) {
+    LMSocket.emit('state', {
+      gmVolume: this.gmVolume,
+      playback: this._currentPlaybackPayload()
+    }, { targetId });
+  }
+
+  async _setSync(enabled) {
+    const wasEnabled = this._syncEnabled();
+    if (wasEnabled && !enabled) LMSocket.emit('stop');
+    await LMSettings.set('syncToPlayers', enabled);
+    if (enabled) this._emitState();
+  }
+
+  syncStateToPlayer(userId) {
+    if (!this._syncEnabled() || !userId) return;
+    this._emitState(userId);
   }
 
   // ── Playback ──────────────────────────────────────────────────────────────
@@ -450,16 +445,8 @@ export class LMApp extends HandlebarsApp {
 
     this._updateNowPlaying();
 
-    if (this.track.source === 'youtube') {
-      // Через ретранслятор (встроенный помощник / внешний сервер), с откатом на YT-iframe
-      this._playViaRelay(this.track.id);
-      return; // синхронизация игрокам — внутри, когда файл готов
-    }
-
-    if (LMSettings.get('syncToPlayers')) {
-      const payload = { ...this.track, videoId: this.track.id, position: 0, title: this.track.displayTitle || this.track.title };
-      LMSocket.emit('play', payload);
-    }
+    // Через ретранслятор (встроенный помощник / внешний сервер), с откатом на YT-iframe.
+    this._playViaRelay(this.track.id);
   }
 
   // ── Воспроизведение через ретранслятор (YouTube → кэш → все) ──────────────
@@ -487,6 +474,7 @@ export class LMApp extends HandlebarsApp {
       prefetch:    id => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
       cacheStatus: () => `${h}/api/cache/status`,
       cacheClear:  () => `${h}/api/cache/clear`,
+      cacheClearOptions: { method: 'POST' },
       resolve:     d  => d.url
     }];
     const server = this._serverUrl();
@@ -496,9 +484,21 @@ export class LMApp extends HandlebarsApp {
       prefetch:    id => `${server}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
       cacheStatus: () => `${server}/api/cache/status`,
       cacheClear:  () => `${server}/api/cache/clear`,
+      cacheClearOptions: {},
       resolve:     d  => server + d.url
     });
     return sources;
+  }
+
+  async _openCacheFolder() {
+    try {
+      const res = await fetch(`${LMApp.HELPER_URL}/api/cache/open`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.opened) throw new Error(data.error || `HTTP ${res.status}`);
+      ui.notifications.info(L('CacheOpened'));
+    } catch {
+      ui.notifications.warn(L('HelperDownOpen'));
+    }
   }
 
   // ── Очистка кэша скачанной музыки (кнопка-метла в шапке) ──────────────────
@@ -530,7 +530,7 @@ export class LMApp extends HandlebarsApp {
       if (!ok) return;
 
       try {
-        const data = await (await fetch(s.cacheClear())).json();
+        const data = await (await fetch(s.cacheClear(), s.cacheClearOptions)).json();
         const freedMb = (data.freed / 1048576).toFixed(0);
         const skipped = st.files - data.cleared;
         ui.notifications.info(LF('CacheCleared', { files: data.cleared, mb: freedMb }) +
@@ -578,7 +578,7 @@ export class LMApp extends HandlebarsApp {
         p.setVolume(Math.round(this._getFoundryVol() * 100));
         p.loadVideoById(videoId);
       });
-      if (LMSettings.get('syncToPlayers')) {
+      if (this._syncEnabled()) {
         LMSocket.emit('play', {
           ...this.track, videoId, position: 0,
           title: this.track.displayTitle || this.track.title
@@ -596,7 +596,7 @@ export class LMApp extends HandlebarsApp {
     audio.volume = Math.min(1, this._getFoundryVol() * this.gmVolume);
     audio.play().catch(e => console.warn('Lazy Music | GM autoplay blocked:', e?.message));
 
-    if (LMSettings.get('syncToPlayers')) {
+    if (this._syncEnabled()) {
       LMSocket.emit('play', {
         ...this.track, videoId, streamUrl: url, position: 0,
         title: this.track.displayTitle || this.track.title
@@ -621,7 +621,7 @@ export class LMApp extends HandlebarsApp {
       a.currentTime = 0;
       a.play().catch(() => {});
       // Перезапускаем и у игроков
-      if (LMSettings.get('syncToPlayers') && this.track) {
+      if (this._syncEnabled() && this.track) {
         LMSocket.emit('play', {
           ...this.track, videoId: this.track.id, streamUrl: this._relayUrl || a.src, position: 0,
           title: this.track.displayTitle || this.track.title
@@ -664,19 +664,23 @@ export class LMApp extends HandlebarsApp {
       const a = getGMAudio();
       if (this.playing) {
         a.pause();
-        LMSocket.emit('pause');
+        if (this._syncEnabled()) LMSocket.emit('pause');
       } else {
         a.play().catch(() => {});
-        LMSocket.emit('play', { ...this.track, videoId: this.track.id, streamUrl: this._relayUrl || a.src, position: a.currentTime || this.position });
+        if (this._syncEnabled()) {
+          LMSocket.emit('play', { ...this.track, videoId: this.track.id, streamUrl: this._relayUrl || a.src, position: a.currentTime || this.position });
+        }
       }
     } else {
       const p = getYTPlayer();
       if (this.playing) {
         p?.pauseVideo?.();
-        LMSocket.emit('pause');
+        if (this._syncEnabled()) LMSocket.emit('pause');
       } else {
         p?.playVideo?.();
-        LMSocket.emit('play', { ...this.track, videoId: this.track.id, position: this.position });
+        if (this._syncEnabled()) {
+          LMSocket.emit('play', { ...this.track, videoId: this.track.id, position: this.position });
+        }
       }
     }
     this.playing = !this.playing;
@@ -690,7 +694,7 @@ export class LMApp extends HandlebarsApp {
     this._relayUrl = null;
     this.playing = false; this.track = null; this.duration = 0;
     LMMini.stop();
-    LMSocket.emit('stop');
+    if (this._syncEnabled()) LMSocket.emit('stop');
     this._stopProgress();
     this.render(false);
   }
@@ -719,7 +723,7 @@ export class LMApp extends HandlebarsApp {
     const el = this.element instanceof HTMLElement ? this.element : this.element?.[0];
     el?.querySelector('#lm-gm-vol-pct') && (el.querySelector('#lm-gm-vol-pct').textContent = Math.round(this.gmVolume * 100) + '%');
     // Транслируем игрокам
-    LMSocket.emit('gmvol', { vol: this.gmVolume });
+    if (this._syncEnabled()) LMSocket.emit('gmvol', { vol: this.gmVolume });
     LMMini.syncMaster(this.gmVolume);
     // Применяем к своему GM плееру тоже (умножаем на Foundry vol)
     const effective = this.gmVolume * this._getFoundryVol();
@@ -744,7 +748,7 @@ export class LMApp extends HandlebarsApp {
     this.position = pos;
     if (this.relayMode) { try { getGMAudio().currentTime = pos; } catch {} }
     else getYTPlayer()?.seekTo?.(pos, true);
-    LMSocket.emit('seek', { pos });
+    if (this._syncEnabled()) LMSocket.emit('seek', { pos });
     this._updateProgressBar();
   }
 
@@ -752,7 +756,18 @@ export class LMApp extends HandlebarsApp {
   _onYTState(e) {
     if (this.relayMode) return; // трек идёт через сервер — YT-плеер заглушён
     if (e.data === 0) { // ended
-      if (this.repeat) { getYTPlayer()?.seekTo(0); getYTPlayer()?.playVideo(); }
+      if (this.repeat) {
+        getYTPlayer()?.seekTo(0);
+        getYTPlayer()?.playVideo();
+        if (this._syncEnabled() && this.track) {
+          LMSocket.emit('play', {
+            ...this.track,
+            videoId: this.track.id,
+            position: 0,
+            title: this.track.displayTitle || this.track.title
+          });
+        }
+      }
       else this._next();
     } else if (e.data === 1) { // playing
       this.playing  = true;
@@ -804,9 +819,9 @@ export class LMApp extends HandlebarsApp {
     if (!q?.trim()) return;
     this.searchMode = true;
     try {
-      this.searchResults = this.source === 'youtube' ? await YouTubeAPI.search(q) : await SpotifyAPI.searchTracks(q);
+      this.searchResults = await YouTubeAPI.search(q);
       this.render(false);
-    } catch (e) { ui.notifications.error('Search: ' + e.message); }
+    } catch (e) { ui.notifications.error(LF('SearchFailed', { error: e.message })); }
   }
 
   // ── Rename ────────────────────────────────────────────────────────────────
@@ -845,9 +860,6 @@ export class LMApp extends HandlebarsApp {
     const nameEl = el?.querySelector(`.lm-track[data-i="${i}"] .lm-track-name`);
     if (nameEl) { nameEl.textContent = track.displayTitle; nameEl.classList.toggle('lm-renamed', hasCustom); }
   }
-
-  // ── Spotify logout ────────────────────────────────────────────────────────
-  async _spLogout() { await LMSettings.setSpotifyToken(null); this.render(false); }
 
   // ── Progress ──────────────────────────────────────────────────────────────
   _startProgress() {
@@ -911,7 +923,6 @@ export class LMApp extends HandlebarsApp {
 
   close(options = {}) {
     this._stopProgress();
-    if (this._oauthHandler) window.removeEventListener('message', this._oauthHandler);
     // НЕ обнуляем _instance — иначе next/prev перестают работать когда окно закрыто
     // Инстанс живёт всю сессию, хранит треки и состояние плеера
     return super.close(options);

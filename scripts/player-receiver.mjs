@@ -46,26 +46,34 @@ export class PlayerReceiver {
     _applyAudioVol();
   }
 
-  // Локальная громкость игрока (то же, что и ползунок «Музыка»)
-  // Используется socket-командой 'volume'.
-  static setLocalVolume(vol) {
-    PlayerReceiver.setFoundryVolume(vol);
-  }
-
-  static play(payload) {
-    PlayerReceiver._intentionalPause = false;
+  static play(payload, { autoplay = true, showBanner = true } = {}) {
+    PlayerReceiver._intentionalPause = !autoplay;
     console.log('Lazy Music | Player received play:', payload);
 
     if (payload.streamUrl) {
       // Аудио с нашего сервера — без YouTube-iframe, ошибки 150 не бывает
-      PlayerReceiver._playStream(payload.streamUrl, payload.position || 0);
+      PlayerReceiver._playStream(payload.streamUrl, payload.position || 0, autoplay);
     } else if (payload.source === 'youtube') {
-      PlayerReceiver._playYouTube(payload.videoId || payload.id, payload.position || 0);
+      PlayerReceiver._playYouTube(payload.videoId || payload.id, payload.position || 0, autoplay);
     }
 
-    PlayerReceiver._showBanner(payload);
+    if (showBanner) PlayerReceiver._showBanner(payload);
     window._lmCurrentTrack = payload;
-    if (!game.user.isGM) LMMini.update({ title: payload.displayTitle || payload.title || '', playing: true });
+    if (!game.user.isGM) {
+      LMMini.update({ title: payload.displayTitle || payload.title || '', playing: autoplay });
+    }
+  }
+
+  static restoreState({ gmVolume: volume = 1, playback = null } = {}) {
+    PlayerReceiver.setGMVolume(volume);
+    if (!playback?.track) {
+      PlayerReceiver.stop();
+      return;
+    }
+    PlayerReceiver.play(playback.track, {
+      autoplay: !!playback.playing,
+      showBanner: false
+    });
   }
 
   static pause() {
@@ -92,7 +100,7 @@ export class PlayerReceiver {
 
   // ── Поток с нашего сервера ────────────────────────────────────────────────
 
-  static _playStream(url, position = 0) {
+  static _playStream(url, position = 0, autoplay = true) {
     mode = 'stream';
     ytPlayer?.stopVideo?.();   // глушим YouTube, если играл
 
@@ -104,6 +112,11 @@ export class PlayerReceiver {
     const start = () => {
       try { a.currentTime = position; } catch {}
       _applyAudioVol();
+      if (!autoplay) {
+        a.pause();
+        PlayerReceiver._stopWatchdog();
+        return;
+      }
       a.play().catch((e) => {
         // Автоплей заблокирован браузером — запустим по первому действию игрока
         console.warn('Lazy Music | autoplay blocked, waiting for user gesture:', e?.message);
@@ -125,7 +138,7 @@ export class PlayerReceiver {
 
   // ── YouTube — точная копия рабочей v14 ───────────────────────────────────
 
-  static _playYouTube(videoId, position = 0) {
+  static _playYouTube(videoId, position = 0, autoplay = true) {
     if (!videoId) { console.error('Lazy Music | No videoId!'); return; }
     mode = 'yt';
     if (audioEl) audioEl.pause();   // глушим поток сервера, если играл
@@ -141,19 +154,20 @@ export class PlayerReceiver {
 
     const startPlay = () => {
       if (ytPlayer) {
-        ytPlayer.loadVideoById({ videoId, startSeconds: Math.floor(position) });
+        const method = autoplay ? 'loadVideoById' : 'cueVideoById';
+        ytPlayer[method]?.({ videoId, startSeconds: Math.floor(position) });
         ytPlayer.setVolume(_effectiveVol());
       } else {
         ytPlayer = new YT.Player(containerId, {
           width: '1', height: '1', videoId,
-          playerVars: { autoplay: 1, start: Math.floor(position), controls: 0, disablekb: 1, fs: 0, rel: 0 },
+          playerVars: { autoplay: autoplay ? 1 : 0, start: Math.floor(position), controls: 0, disablekb: 1, fs: 0, rel: 0 },
           events: {
             onReady: (e) => {
               e.target.setVolume(_effectiveVol());
-              e.target.playVideo();
+              if (autoplay) e.target.playVideo();
+              else e.target.cueVideoById({ videoId, startSeconds: Math.floor(position) });
               window._lmYTPlayer = ytPlayer;
-              // Запускаем watchdog — он следит что плеер не остановился
-              PlayerReceiver._startWatchdog();
+              if (autoplay) PlayerReceiver._startWatchdog();
             },
             onStateChange: (e) => {
               // PAUSED=2, ENDED=0
