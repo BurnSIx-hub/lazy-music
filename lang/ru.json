@@ -25,7 +25,6 @@
   "LAZYMUSIC.Stop": "Стоп",
   "LAZYMUSIC.PlayPause": "Пауза / играть",
   "LAZYMUSIC.GMVolumeTooltip": "Общая громкость для всех игроков",
-  "LAZYMUSIC.MyVolume": "Моя громкость",
   "LAZYMUSIC.ClearCacheTooltip": "Очистить кэш скачанной музыки на диске",
   "LAZYMUSIC.OpenCacheTooltip": "Открыть папку скачанных треков",
   "LAZYMUSIC.WhichPlaylist": "В какой плейлист",

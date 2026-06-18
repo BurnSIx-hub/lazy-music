@@ -34,13 +34,8 @@ Hooks.once('ready', () => {
     if (el) _injectButton(ui.playlists, el);
   }
 
-  // Мини-плеер (у всех): личная громкость с ползунка применяется сразу,
-  // а в настройку Foundry пишется только по отпусканию (commit)
-  LMMini.onPersonal = (v, commit) => {
-    PlayerReceiver.setFoundryVolume(v);
-    if (game.user.isGM) LMApp._instance?.applyFoundryVolume(v);
-    if (commit) game.settings.set('core', 'globalPlaylistVolume', v).catch(() => {});
-  };
+  // Мини-плеер (у всех) не имеет своего личного регулятора громкости:
+  // индивидуальная громкость берётся из штатного Foundry-ползунка «Музыка».
   LMMini.init();
 
   // Применяем текущую громкость сразу
@@ -58,14 +53,23 @@ Hooks.once('ready', () => {
 });
 
 // ── Читаем globalPlaylistVolume из Foundry ───────────────────────────────────
+function _normalizeVol(vol) {
+  const n = Number.parseFloat(vol);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1;
+}
+
 function _getFoundryVol() {
-  try { return game.settings.get('core', 'globalPlaylistVolume') ?? 1; } catch { return 1; }
+  try { return _normalizeVol(game.settings.get('core', 'globalPlaylistVolume') ?? 1); } catch { return 1; }
+}
+
+function _applyFoundryVol(vol) {
+  const v = _normalizeVol(vol);
+  PlayerReceiver.setFoundryVolume(v);
+  if (game.user.isGM) LMApp._instance?.applyFoundryVolume(v);
 }
 
 function _syncVol() {
-  const vol = _getFoundryVol();
-  PlayerReceiver.setFoundryVolume(vol);
-  if (game.user.isGM) LMApp._instance?.applyFoundryVolume(vol);
+  _applyFoundryVol(_getFoundryVol());
 }
 
 // ── Синхронизация громкости — несколько независимых методов ─────────────────
@@ -81,43 +85,31 @@ function _setupVolumeSync() {
     }
   });
 
-  // Метод 2: DOM observer на ползунок — самый надёжный
-  // Ищем все range input в панели плейлистов
+  // Метод 2: DOM observer на штатный Foundry-ползунок «Музыка».
+  // Во время перетаскивания Foundry не во всех версиях сразу пишет setting,
+  // поэтому применяем input-событие напрямую к нашему плееру.
   const tryAttachSlider = () => {
-    // В Foundry v14 панель плейлистов — #playlists или .playlists-sidebar
-    const panel = document.querySelector('#playlists, .playlists-sidebar, [data-tab="playlists"], aside.playlists');
-    if (!panel) return false;
-
-    // Ищем все range слайдеры в панели
-    const sliders = panel.querySelectorAll('input[type=range]');
+    const sliders = document.querySelectorAll('input[type="range"]');
     let found = false;
 
-    sliders.forEach((slider, idx) => {
+    sliders.forEach(slider => {
       if (slider._lmWatched) return;
+      if (!_isFoundryMusicVolumeSlider(slider)) return;
 
-      // Определяем что это за ползунок по контексту
-      const parent = slider.closest('li, .form-group, label, div');
-      const text = (parent?.textContent || '').toLowerCase();
-      const isMusic = text.includes('музык') || text.includes('music') ||
-                      text.includes('playlist');
+      slider._lmWatched = true;
+      found = true;
+      console.log('Lazy Music | Found Foundry music volume slider');
 
-      if (isMusic) {
-        slider._lmWatched = true;
-        found = true;
-        console.log('Lazy Music | Found volume slider, text context:', text.trim().slice(0, 40));
-
-        slider.addEventListener('input', () => {
-          const vol = parseFloat(slider.value);
-          if (!isNaN(vol)) {
-            PlayerReceiver.setFoundryVolume(vol);
-            if (game.user.isGM) LMApp._instance?.applyFoundryVolume(vol);
-          }
-        });
-      }
+      const apply = () => _applyFoundryVol(slider.value);
+      slider.addEventListener('input', apply);
+      slider.addEventListener('change', apply);
     });
 
     return found;
   };
+
+  Hooks.on('renderPlaylistDirectory', () => setTimeout(tryAttachSlider, 0));
+  Hooks.on('renderSidebarTab', () => setTimeout(tryAttachSlider, 0));
 
   // Пробуем сразу
   if (!tryAttachSlider()) {
@@ -140,6 +132,47 @@ function _setupVolumeSync() {
     _syncVol(); // синхронизируем из game.settings
     if (tryAttachSlider() || _pollCount > 20) clearInterval(poll);
   }, 500);
+}
+
+function _isFoundryMusicVolumeSlider(slider) {
+  if (slider.closest('#lazy-music-app, .lazy-music-app, #lm-mini')) return false;
+
+  const text = _sliderContext(slider).toLowerCase();
+  if (text.includes('globalplaylistvolume') || text.includes('global-playlist-volume')) return true;
+
+  const inPlaylists = slider.closest('#playlists, .playlists-sidebar, [data-tab="playlists"], aside.playlists');
+  if (!inPlaylists) return false;
+
+  return text.includes('музык') || text.includes('music') ||
+         text.includes('плейлист') || text.includes('playlist');
+}
+
+function _sliderContext(slider) {
+  const parts = [
+    slider.name,
+    slider.id,
+    slider.getAttribute('aria-label'),
+    slider.getAttribute('title'),
+    slider.getAttribute('data-tooltip'),
+    slider.dataset?.setting,
+    slider.dataset?.settingId,
+  ];
+
+  let node = slider;
+  for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+    parts.push(
+      node.textContent,
+      node.className,
+      node.id,
+      node.getAttribute?.('aria-label'),
+      node.getAttribute?.('title'),
+      node.getAttribute?.('data-tooltip'),
+      node.dataset?.setting,
+      node.dataset?.settingId,
+    );
+  }
+
+  return parts.filter(Boolean).join(' ');
 }
 
 // ── Кнопка LAZY MUSIC в панели ───────────────────────────────────────────────

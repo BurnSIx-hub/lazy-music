@@ -25,7 +25,6 @@
   "LAZYMUSIC.Stop": "Stop",
   "LAZYMUSIC.PlayPause": "Play / pause",
   "LAZYMUSIC.GMVolumeTooltip": "Master volume for all players",
-  "LAZYMUSIC.MyVolume": "My volume",
   "LAZYMUSIC.ClearCacheTooltip": "Clear downloaded music cache on disk",
   "LAZYMUSIC.OpenCacheTooltip": "Open downloaded tracks folder",
   "LAZYMUSIC.WhichPlaylist": "Which playlist",

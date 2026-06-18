@@ -156,38 +156,6 @@
 
 
 
-/* ── Панель громкости игроков ────────────────────────────────────────────── */
-#lm-vol-panel {
-  position: fixed;
-  z-index: 99998;
-  width: 260px;
-  background: rgba(13,13,18,.97);
-  border: 1px solid rgba(201,168,76,.4);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.7), 0 0 20px rgba(201,168,76,.1);
-  backdrop-filter: blur(12px);
-  font-family: var(--lm-body);
-  color: var(--lm-text);
-  animation: lm-panel-in .3s cubic-bezier(.34,1.56,.64,1);
-}
-@keyframes lm-panel-in { from { transform:translateY(20px) scale(.95); opacity:0; } to { transform:none; opacity:1; } }
-.lm-vol-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:rgba(201,168,76,.1); border-bottom:1px solid rgba(201,168,76,.2); font-family:var(--lm-font); font-size:12px; color:var(--lm-gold); letter-spacing:.08em; }
-.lm-vol-spin { animation:lm-spin 8s linear infinite; font-size:14px; }
-.lm-vol-header span { flex:1; }
-#lm-vol-close { background:none; border:none; color:var(--lm-dim); cursor:pointer; font-size:12px; padding:2px 4px; border-radius:4px; line-height:1; }
-#lm-vol-close:hover { color:var(--lm-red); }
-.lm-vol-body { padding:14px; display:flex; flex-direction:column; gap:12px; }
-.lm-vol-track { display:flex; flex-direction:column; gap:2px; min-height:28px; }
-.lm-vol-track-name { font-size:13px; font-weight:600; color:var(--lm-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.lm-vol-track-artist { font-size:11px; color:var(--lm-dim); }
-.lm-vol-row { display:flex; align-items:center; gap:8px; }
-.lm-vol-row i { font-size:11px; color:var(--lm-dim); flex-shrink:0; }
-#lm-vol-slider { flex:1; -webkit-appearance:none; height:4px; background:var(--lm-border); border-radius:2px; outline:none; cursor:pointer; }
-#lm-vol-slider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--lm-gold); cursor:pointer; box-shadow:0 0 6px rgba(201,168,76,.5); }
-#lm-vol-pct { font-size:11px; color:var(--lm-gold); width:34px; text-align:right; font-family:var(--lm-font); flex-shrink:0; }
-.lm-vol-mute-btn { background:none; border:1px solid var(--lm-border); color:var(--lm-dim); padding:6px 12px; border-radius:var(--lm-r); cursor:pointer; font-family:var(--lm-body); font-size:12px; transition:all .2s; display:flex; align-items:center; gap:6px; justify-content:center; }
-.lm-vol-mute-btn:hover, .lm-vol-mute-btn.active { border-color:var(--lm-red); color:var(--lm-red); background:rgba(192,57,43,.1); }
-
 /* ── Now Playing баннер (у игроков) ─────────────────────────────────────── */
 #lm-banner {
   position: fixed;

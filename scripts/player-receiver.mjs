@@ -36,7 +36,6 @@ export class PlayerReceiver {
     foundryVol = Math.max(0, Math.min(1, vol));
     ytPlayer?.setVolume?.(_effectiveVol());
     _applyAudioVol();
-    LMMini.syncPersonal(foundryVol);
   }
 
   // Мастер-громкость от GM для всех

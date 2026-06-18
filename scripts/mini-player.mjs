@@ -2,17 +2,15 @@
  * Lazy Music — мини-плеер.
  *
  * Компактная плашка поверх экрана: управление музыкой без открытия окна модуля.
- *  - ГМ: название трека, prev/play/next, личная громкость (🎧) и мастер-громкость
- *    для всех (📢).
- *  - Игрок: название трека и личная громкость (🎧 — тот же ползунок «Музыка»
- *    Foundry, изменения сохраняются).
+ *  - ГМ: название трека, prev/play/next и мастер-громкость для всех.
+ *  - Игрок: название трека. Личная громкость регулируется штатным ползунком
+ *    Foundry «Музыка» в панели управления громкостью.
  *
  * Сворачивается в маленький диск, перетаскивается за него же; позиция и
  * состояние запоминаются. Появляется при старте трека, исчезает по stop.
  *
  * Модуль ничего не импортирует из остальных файлов (чтобы не плодить циклы):
- * обработчики действий вешаются снаружи — gmControls в app.mjs, onPersonal
- * в main.mjs.
+ * обработчики действий вешаются снаружи — gmControls в app.mjs.
  */
 
 const LS_POS  = 'lazy-music-fab-pos';
@@ -23,8 +21,6 @@ export const LMMini = {
 
   // Назначается в app.mjs (только у ГМ): { prev, next, toggle, master }
   gmControls: null,
-  // Назначается в main.mjs: (v, commit) => …  — личная громкость
-  onPersonal: null,
 
   _playing: false,
   _dragged: false,
@@ -49,10 +45,6 @@ export const LMMini = {
           <button type="button" data-act="toggle" title="${T('PlayPause')}"><i class="fas fa-pause"></i></button>
           <button type="button" data-act="next"   title="${T('Next')}"><i class="fas fa-forward-step"></i></button>
         </div>` : ''}
-        <div class="lm-mini-row" title="${T('MyVolume')}">
-          <i class="fas fa-headphones"></i>
-          <input type="range" class="lm-mini-vol-me" min="0" max="1" step="0.01">
-        </div>
         ${isGM ? `
         <div class="lm-mini-row" title="${T('GMVolumeTooltip')}">
           <i class="fas fa-tower-broadcast"></i>
@@ -73,11 +65,6 @@ export const LMMini = {
       this.gmControls?.[btn.dataset.act]?.();
     }));
 
-    // Личная громкость: на input применяем сразу, на change — сохраняем
-    const me = el.querySelector('.lm-mini-vol-me');
-    me.addEventListener('input',  () => this.onPersonal?.(parseFloat(me.value), false));
-    me.addEventListener('change', () => this.onPersonal?.(parseFloat(me.value), true));
-
     // Мастер-громкость ГМ
     const all = el.querySelector('.lm-mini-vol-all');
     all?.addEventListener('input', () => this.gmControls?.master?.(parseFloat(all.value)));
@@ -93,7 +80,7 @@ export const LMMini = {
       t.title = title || '';
     }
     if (playing !== undefined) this.setPlaying(playing);
-    this._syncSliders();
+    this._syncMasterSlider();
     this.el.classList.remove('hidden');
   },
 
@@ -111,20 +98,12 @@ export const LMMini = {
     this.el.classList.add('hidden');
   },
 
-  syncPersonal(v) {
-    const s = this.el?.querySelector('.lm-mini-vol-me');
-    if (s && document.activeElement !== s) s.value = String(v);
-  },
-
   syncMaster(v) {
     const s = this.el?.querySelector('.lm-mini-vol-all');
     if (s && document.activeElement !== s) s.value = String(v);
   },
 
-  _syncSliders() {
-    let me = 1;
-    try { me = game.settings.get('core', 'globalPlaylistVolume') ?? 1; } catch {}
-    this.syncPersonal(me);
+  _syncMasterSlider() {
     this.syncMaster(parseFloat(localStorage.getItem('lm-gm-vol') ?? '1'));
   },
 
@@ -157,7 +136,7 @@ export const LMMini = {
           // Обычный клик — свернуть/развернуть панель
           const open = this.el.classList.toggle('open');
           localStorage.setItem(LS_OPEN, String(open));
-          if (open) this._syncSliders();
+          if (open) this._syncMasterSlider();
         }
       };
       handle.addEventListener('pointermove', move);
