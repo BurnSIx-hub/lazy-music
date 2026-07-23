@@ -194,3 +194,15 @@ function _injectButton(app, html) {
   wrap.appendChild(btn);
   header.after(wrap);
 }
+
+// ─── BurnHub tile (необязательная интеграция: без хаба вызов уходит в никуда) ───
+Hooks.once("ready", () => {
+  Hooks.callAll("hubRegisterTile", {
+    moduleId: "lazy-music",
+    title: "Lazy Music",
+    icon: "fa-solid fa-music",
+    order: 10,
+    gmOnly: true,
+    onClick: () => LMApp.open()
+  });
+});
