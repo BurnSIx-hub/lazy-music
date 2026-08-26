@@ -6,24 +6,11 @@
 
 $ErrorActionPreference = 'Stop'
 $root    = Split-Path $PSScriptRoot
-$bin     = Join-Path $root 'server\bin'
 $release = Join-Path $root 'release'
 
 # 1. Бинарники: докачиваем, если их нет (в git они не хранятся)
-New-Item -ItemType Directory -Force $bin | Out-Null
-$ytdlp = Join-Path $bin 'yt-dlp.exe'
-$deno  = Join-Path $bin 'deno.exe'
-if (-not (Test-Path $ytdlp)) {
-    Write-Host 'Качаю yt-dlp.exe...'
-    curl.exe -L -sS -o $ytdlp 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-}
-if (-not (Test-Path $deno)) {
-    Write-Host 'Качаю deno...'
-    $zip = Join-Path $env:TEMP 'deno.zip'
-    curl.exe -L -sS -o $zip 'https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip'
-    Expand-Archive $zip $bin -Force
-    Remove-Item $zip
-}
+& (Join-Path $root 'server\get-binaries.ps1')
+if ($LASTEXITCODE) { throw 'Не удалось получить бинарники' }
 
 # 2. Собираем содержимое во временную папку (без локальных данных)
 $stage = Join-Path $env:TEMP 'lazy-music-release'

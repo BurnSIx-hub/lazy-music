@@ -62,11 +62,23 @@
         {{#if searchMode}}<button id="lm-clear-search"><i class="fas fa-times"></i></button>{{/if}}
       </div>
 
-      <div class="lm-tracks" {{#if searchMode}}data-search="true"{{/if}}>
+      {{#if cacheHint}}
+        <div class="lm-cache-hint">
+          <i class="fas fa-triangle-exclamation"></i>
+          <span>{{localize 'LAZYMUSIC.CacheHint'}}</span>
+        </div>
+      {{/if}}
+
+      <div class="lm-tracks" {{#if searchMode}}data-search="true"{{/if}} {{#if helperDown}}data-helper-down="true"{{/if}}>
         {{#if tracks.length}}
           {{#each tracks}}
-            <div class="lm-track" data-i="{{@index}}">
+            <div class="lm-track {{#if this.cached}}lm-cached{{/if}} {{#if (eq this.id ../track.id)}}active{{/if}}" data-i="{{@index}}">
               <div class="lm-track-num">{{@index}}</div>
+              {{#if this.cached}}
+                <span class="lm-cache-dot" title="{{localize 'LAZYMUSIC.InCache'}}"></span>
+              {{else}}
+                <span class="lm-cache-dot" title="{{localize 'LAZYMUSIC.NotInCache'}}"></span>
+              {{/if}}
               {{#if this.albumArt}}
                 <img src="{{this.albumArt}}" class="lm-track-art">
               {{else}}
@@ -102,20 +114,18 @@
 
   {{!-- Player bar --}}
   <div class="lm-player">
+    {{!-- Блок рендерится целиком всегда, лишнее прячется атрибутом hidden:
+          смена трека тогда обходится точечным обновлением, без перерисовки
+          всего окна. См. LMApp#_updateNowPlaying. --}}
     <div class="lm-np">
-      {{#if track}}
-        {{#if track.albumArt}}
-          <img src="{{track.albumArt}}" class="lm-np-art">
-        {{else}}
-          <div class="lm-np-art lm-np-art-ph"><i class="fab fa-youtube"></i></div>
-        {{/if}}
-        <div class="lm-np-info">
-          <div class="lm-np-title">{{#if track.displayTitle}}{{track.displayTitle}}{{else}}{{track.title}}{{/if}}</div>
-          <div class="lm-np-artist">{{track.artist}}</div>
-        </div>
-      {{else}}
-        <div class="lm-no-track">{{localize 'LAZYMUSIC.NothingPlaying'}}</div>
-      {{/if}}
+      {{!-- src не пишем пустым: пустой src браузер трактует как ссылку на саму страницу --}}
+      <img class="lm-np-art" {{#if npArt}}src="{{npArt}}"{{/if}} {{#unless npShowArt}}hidden{{/unless}}>
+      <div class="lm-np-art lm-np-art-ph" {{#unless npShowPh}}hidden{{/unless}}><i class="fab fa-youtube"></i></div>
+      <div class="lm-np-info" {{#unless track}}hidden{{/unless}}>
+        <div class="lm-np-title">{{npTitle}}</div>
+        <div class="lm-np-artist">{{npArtist}}</div>
+      </div>
+      <div class="lm-no-track" {{#if track}}hidden{{/if}}>{{localize 'LAZYMUSIC.NothingPlaying'}}</div>
     </div>
 
     <div class="lm-controls">

@@ -113,6 +113,16 @@
 .lm-track.active .lm-track-name { color:var(--lm-gold); }
 
 .lm-track-num { font-size:11px; color:var(--lm-dim); width:20px; text-align:right; flex-shrink:0; }
+
+/* Точка «трек на диске»: золотая — играет из cache/, тусклая — нужен помощник */
+.lm-cache-dot { width:6px; height:6px; border-radius:50%; background:var(--lm-border); flex-shrink:0; transition:background .2s, box-shadow .2s; }
+.lm-track.lm-cached .lm-cache-dot { background:var(--lm-gold); box-shadow:0 0 5px var(--lm-glow); }
+/* Помощника нет — нескачанное сыграет только через YouTube, показываем это */
+.lm-tracks[data-helper-down] .lm-track:not(.lm-cached) { opacity:.45; }
+
+.lm-cache-hint { display:flex; align-items:center; gap:8px; margin:0 12px 4px; padding:6px 10px; border:1px solid var(--lm-border); border-left:2px solid var(--lm-gold); border-radius:var(--lm-r); background:var(--lm-bg3); color:var(--lm-dim); font-size:11px; line-height:1.4; }
+.lm-cache-hint i { color:var(--lm-gold); flex-shrink:0; }
+
 .lm-track-art { width:32px; height:32px; object-fit:cover; border-radius:3px; flex-shrink:0; }
 .lm-track-art-ph { background:var(--lm-bg3); border:1px solid var(--lm-border); display:flex; align-items:center; justify-content:center; color:var(--lm-dim); font-size:11px; }
 .lm-track-meta { flex:1; overflow:hidden; }
@@ -129,6 +139,9 @@
 
 /* ── Player bar ──────────────────────────────────────────────────────────── */
 .lm-player { display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--lm-bg2); border-top:1px solid var(--lm-border); flex-shrink:0; }
+
+/* Свои display:flex перебивают штатное [hidden] — возвращаем ему силу */
+.lazy-music-app [hidden] { display:none !important; }
 
 .lm-np { display:flex; align-items:center; gap:10px; width:190px; flex-shrink:0; overflow:hidden; }
 .lm-np-art { width:44px; height:44px; object-fit:cover; border-radius:4px; flex-shrink:0; box-shadow:0 2px 12px rgba(0,0,0,.5); }

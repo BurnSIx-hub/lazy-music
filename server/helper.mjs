@@ -151,6 +151,20 @@ async function _download(id) {
 
 // ── HTTP API ─────────────────────────────────────────────────────────────────
 
+// Адреса этой самой машины. Foundry открывают не только по localhost, но и по
+// адресу в локальной сети — это тот же компьютер, и его запросы законные.
+// Список считается один раз и кэшируется: интерфейсы за сессию не меняются.
+let _localHosts = null;
+
+function localHosts() {
+  if (_localHosts) return _localHosts;
+  _localHosts = new Set(['localhost', '127.0.0.1', '::1']);
+  try {
+    for (const ni of Deno.networkInterfaces()) _localHosts.add(ni.address);
+  } catch { /* нет прав или API недоступен — остаёмся на localhost */ }
+  return _localHosts;
+}
+
 function json(obj, status = 200, origin = null) {
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
@@ -172,8 +186,9 @@ async function handler(req) {
   // cache-management endpoints to arbitrary websites opened in the GM browser.
   if (origin) {
     let host = '';
-    try { host = new URL(origin).hostname; } catch {}
-    if (!['localhost', '127.0.0.1', '::1'].includes(host)) {
+    // URL.hostname keeps the brackets around IPv6 literals — strip them.
+    try { host = new URL(origin).hostname.replace(/^\[|\]$/g, ''); } catch {}
+    if (!localHosts().has(host)) {
       return json({ error: 'origin not allowed' }, 403);
     }
   }

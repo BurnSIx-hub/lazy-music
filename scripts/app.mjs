@@ -6,6 +6,7 @@ import { LMSettings }   from './settings.mjs';
 import { YouTubeAPI }   from './youtube-api.mjs';
 import { LMSocket }     from './socket.mjs';
 import { LMMini }       from './mini-player.mjs';
+import { LMCache }      from './cache.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -121,6 +122,7 @@ export class LMApp extends HandlebarsApp {
     this._playLock    = false;
     this.gmVolume     = parseFloat(localStorage.getItem('lm-gm-vol') ?? '1');
     this.relayMode    = false; // true — текущий трек играет через наш сервер, не через YT-iframe
+    this._helperAlive = null;  // null — ещё не проверяли
   }
 
   // ── v14 ApplicationV2 options ─────────────────────────────────────────────
@@ -156,8 +158,21 @@ export class LMApp extends HandlebarsApp {
       // Загружаем сохранённые плейлисты сразу
       this._instance._refreshPlaylists();
     }
-    this._instance.render(true);
-    return this._instance;
+    // Что уже скачано и жив ли помощник — узнаём в фоне, окно ждать не должно.
+    // render() в v12 возвращает сам объект, в v14 — промис; Promise.resolve ровняет.
+    const app = this._instance;
+    Promise.resolve(app.render(true)).then(() => app._syncCacheState());
+    return app;
+  }
+
+  /** Перечитывает кэш и статус помощника, затем перерисовывает список. */
+  async _syncCacheState() {
+    await Promise.all([LMCache.refresh(), this._pingHelper()]);
+    this.render(false); // при закрытом окне это no-op
+  }
+
+  _el() {
+    return this.element instanceof HTMLElement ? this.element : this.element?.[0];
   }
 
   // Список плейлистов сайдбара: на вкладке YouTube сверху — свои (собранные
@@ -175,12 +190,24 @@ export class LMApp extends HandlebarsApp {
   getData()               { return this._getData(); }
 
   _getData() {
+    // Отмечаем, что уже лежит на диске: такие треки играют без помощника
+    const tracks   = LMCache.mark(this.searchMode ? this.searchResults : this.tracks);
+    const uncached = tracks.some(t => !t.cached);
     return {
       playlists: this.playlists,
       playlist: this.playlist,
-      tracks: this.searchMode ? this.searchResults : this.tracks,
+      tracks,
+      helperDown: this._helperAlive === false,
+      // Подсказка «как закэшировать» нужна, только если нескачанное реально есть
+      cacheHint: this._helperAlive === false && uncached,
       searchMode: this.searchMode,
       track: this.track,
+      // Плашка «сейчас играет»: показываем обложку или заглушку, но не обе
+      npArt:     this.track?.albumArt || '',
+      npShowArt: !!this.track?.albumArt,
+      npShowPh:  !!this.track && !this.track.albumArt,
+      npTitle:   this.track ? (this.track.displayTitle || this.track.title || '') : '',
+      npArtist:  this.track?.artist || '',
       playing: this.playing,
       volume: this._getFoundryVol(),
       shuffle: this.shuffle,
@@ -312,6 +339,7 @@ export class LMApp extends HandlebarsApp {
       });
       this.searchMode = false; this.searchResults = [];
       this.render(false);
+      this._syncCacheState();
       return;
     }
 
@@ -319,6 +347,7 @@ export class LMApp extends HandlebarsApp {
     try {
       this.tracks = await YouTubeAPI.getPlaylistItems(id);
       this.render(false);
+      this._syncCacheState();
     } catch (e) { ui.notifications.error(LF('LoadFailed', { error: e.message })); }
   }
 
@@ -445,19 +474,23 @@ export class LMApp extends HandlebarsApp {
 
     this._updateNowPlaying();
 
-    // Через ретранслятор (встроенный помощник / внешний сервер), с откатом на YT-iframe.
-    this._playViaRelay(this.track.id);
+    // Сначала кэш на диске, потом ретранслятор, в последнюю очередь YT-iframe.
+    this._playTrack(this.track.id);
   }
 
-  // ── Воспроизведение через ретранслятор (YouTube → кэш → все) ──────────────
+  // ── Откуда берётся звук ───────────────────────────────────────────────────
   //
-  // Источника два, пробуем по порядку:
-  //  1. Встроенный помощник (server/helper.mjs) на машине GM. Он качает аудио
-  //     в modules/lazy-music/cache/, а раздаёт файл сам Foundry — поэтому
-  //     игрокам уходит ОТНОСИТЕЛЬНЫЙ путь, который каждый клиент открывает
-  //     со своего же адреса Foundry. Настройки не нужны вовсе.
+  // По порядку:
+  //  0. Файл уже лежит в modules/lazy-music/cache/ — играем прямо оттуда.
+  //     Помощник для этого не нужен вовсе: папку раздаёт сам Foundry, а её
+  //     содержимое модуль видит через FilePicker.browse (см. cache.mjs).
+  //     Сюда же попадают файлы, положенные в cache/ вручную.
+  //  1. Встроенный помощник (server/helper.mjs) на машине GM — скачивает
+  //     недостающее в ту же папку и возвращает ОТНОСИТЕЛЬНЫЙ путь, который
+  //     каждый клиент открывает со своего же адреса Foundry.
   //  2. Внешний сервер из настройки serverUrl (старый способ, P:\сайт).
-  // Если оба молчат — откат на YouTube-iframe, как раньше.
+  //  3. Никто не ответил — откат на YouTube-iframe, как раньше, плюс подсказка
+  //     в окне модуля о том, как включить кэширование.
 
   static HELPER_URL = 'http://127.0.0.1:8766';
 
@@ -470,6 +503,8 @@ export class LMApp extends HandlebarsApp {
     const h = LMApp.HELPER_URL;
     const sources = [{
       name:        'помощник',
+      local:       true, // качает в нашу же папку cache/ — результат можно запомнить
+      ping:        () => `${h}/api/ping`,
       ensure:      id => `${h}/api/yt/ensure?id=${encodeURIComponent(id)}`,
       prefetch:    id => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
       cacheStatus: () => `${h}/api/cache/status`,
@@ -480,6 +515,8 @@ export class LMApp extends HandlebarsApp {
     const server = this._serverUrl();
     if (server) sources.push({
       name:        'сервер',
+      local:       false,
+      ping:        () => `${server}/api/cache/status`,
       ensure:      id => `${server}/api/yt/ensure?id=${encodeURIComponent(id)}`,
       prefetch:    id => `${server}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
       cacheStatus: () => `${server}/api/cache/status`,
@@ -488,6 +525,17 @@ export class LMApp extends HandlebarsApp {
       resolve:     d  => server + d.url
     });
     return sources;
+  }
+
+  /** Жив ли хоть один ретранслятор. Результат оседает в this._helperAlive. */
+  async _pingHelper() {
+    for (const s of this._relaySources()) {
+      try {
+        const res = await fetch(s.ping(), { signal: AbortSignal.timeout(1500) });
+        if (res.ok) return this._helperAlive = true;
+      } catch { /* не отвечает — пробуем следующий */ }
+    }
+    return this._helperAlive = false;
   }
 
   async _openCacheFolder() {
@@ -535,6 +583,7 @@ export class LMApp extends HandlebarsApp {
         const skipped = st.files - data.cleared;
         ui.notifications.info(LF('CacheCleared', { files: data.cleared, mb: freedMb }) +
           (skipped > 0 ? LF('CacheSkipped', { n: skipped }) : ''));
+        this._syncCacheState(); // точки «в кэше» должны погаснуть
       } catch (e) {
         ui.notifications.error(LF('CacheError', { error: e?.message ?? e }));
       }
@@ -543,33 +592,50 @@ export class LMApp extends HandlebarsApp {
     ui.notifications.warn(L('HelperDownCache'));
   }
 
-  async _playViaRelay(videoId) {
-    // Если качается дольше 1.5 сек — показываем уведомление
+  async _playTrack(videoId) {
+    // 0. Уже на диске — играем немедленно, никого не спрашивая
+    const local = LMCache.get(videoId);
+    if (local) {
+      this._startFromFile(videoId, local);
+      return;
+    }
+
+    // 1. Нет — просим ретранслятор скачать. Если дольше 1.5 сек, предупреждаем
     const notify = setTimeout(() =>
       ui.notifications.info(L('Caching')), 1500);
 
-    let url = null, source = null;
+    // Различаем «никто не ответил» (помощник не запущен) и «ответил отказом»
+    // (запущен, но конкретный трек не скачался — например, протухли cookies).
+    let url = null, source = null, answered = false, failure = null;
     for (const s of this._relaySources()) {
       try {
         const res  = await fetch(s.ensure(videoId));
+        answered = true;
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ready) throw new Error(data.error || `HTTP ${res.status}`);
         url = s.resolve(data);
         source = s;
         break;
       } catch (e) {
-        console.warn(`Lazy Music | ретранслятор «${s.name}» недоступен:`, e?.message ?? e);
+        failure = e?.message ?? String(e);
+        console.warn(`Lazy Music | ретранслятор «${s.name}»:`, failure);
       }
     }
     clearTimeout(notify);
     if (this.track?.id !== videoId) return; // пока качалось — включили другой трек
 
+    this._helperAlive = answered;
+
+    // 2. Скачать не вышло — играем по-старому через YouTube. Если помощника
+    //    вовсе нет, в окне появляется подсказка, как включить кэширование
     if (!url) {
-      // Ни помощник, ни сервер не ответили — играем по-старому через YouTube
-      if (!this._relayWarned) {
+      if (answered) {
+        ui.notifications.warn(LF('CacheFailed', { error: failure ?? '' }));
+      } else if (!this._relayWarned) {
         this._relayWarned = true;
         ui.notifications.warn(L('HelperFallback'));
       }
+      this.render(false); // показать подсказку и пригасить нескачанные треки
       this.relayMode = false;
       this._relayUrl = null;
       _gmAudio?.pause();
@@ -587,6 +653,17 @@ export class LMApp extends HandlebarsApp {
       return;
     }
 
+    // Помощник качает в нашу же папку — значит трек теперь в кэше навсегда.
+    // Внешний сервер держит файлы у себя, его ответ запоминать нельзя.
+    if (source.local) {
+      LMCache.remember(videoId, url);
+      this._markCached(videoId);
+    }
+    this._startFromFile(videoId, url, source);
+  }
+
+  /** Играет готовый файл (из кэша или от ретранслятора) и рассылает игрокам. */
+  _startFromFile(videoId, url, source = null) {
     this.relayMode = true;
     this._relayUrl = url; // в сокет шлём именно его: относительный путь у каждого клиента свой
     getYTPlayer()?.stopVideo?.(); // глушим YT-iframe, если играл
@@ -603,13 +680,29 @@ export class LMApp extends HandlebarsApp {
       });
     }
 
-    // Греем кэш следующего трека, чтобы переход был мгновенным
-    if (!this.shuffle && this.tracks.length > 1) {
-      const next = this.tracks[(this.trackIdx + 1) % this.tracks.length];
-      if (next?.source === 'youtube' && next.id !== videoId) {
-        fetch(source.prefetch(next.id)).catch(() => {});
-      }
-    }
+    this._prefetchNext(videoId, source);
+  }
+
+  /** Греет кэш следующего трека, чтобы переход был мгновенным. */
+  _prefetchNext(videoId, source = null) {
+    if (this.shuffle || this.tracks.length < 2) return;
+    const next = this.tracks[(this.trackIdx + 1) % this.tracks.length];
+    if (!next || next.id === videoId || next.source !== 'youtube') return;
+    if (LMCache.has(next.id)) return;               // уже на диске, качать нечего
+    if (this._helperAlive === false) return;        // качать некому
+    const s = source ?? this._relaySources()[0];
+    fetch(s.prefetch(next.id)).catch(() => {});
+  }
+
+  /** Зажигает точку «в кэше» у трека, не перерисовывая весь список. */
+  _markCached(videoId) {
+    const el = this._el();
+    const pool = this.searchMode ? this.searchResults : this.tracks;
+    pool.forEach((t, i) => {
+      if (t.id !== videoId) return;
+      t.cached = true;
+      el?.querySelector(`.lm-track[data-i="${i}"]`)?.classList.add('lm-cached');
+    });
   }
 
   // ── События HTML5-аудио GM (зеркало _onYTState) ───────────────────────────
@@ -637,6 +730,7 @@ export class LMApp extends HandlebarsApp {
     this.playing  = true;
     this.duration = getGMAudio().duration || 0;
     this._skippedIds?.clear();
+    this._retriedIds?.clear();
     this._errorHandling = false;
     this._startProgress();
     this._updatePlayBtn();
@@ -652,6 +746,18 @@ export class LMApp extends HandlebarsApp {
   _onAudioError() {
     if (!this.relayMode || !this.track) return;
     if (this._errorHandling) return;
+
+    // Файл из кэша не открылся — значит его удалили с диска мимо нас
+    // (почистили папку руками). Забываем запись и один раз качаем заново.
+    const id = this.track.id;
+    if (LMCache.get(id) === this._relayUrl && !this._retriedIds?.has(id)) {
+      (this._retriedIds ??= new Set()).add(id);
+      LMCache.forget(id);
+      console.warn(`Lazy Music | ${id}: файла нет на диске, качаю заново`);
+      this._playTrack(id);
+      return;
+    }
+
     this._errorHandling = true;
     const name = this.track?.displayTitle || this.track?.title || 'Unknown';
     ui.notifications.warn(LF('StreamError', { name }));
@@ -821,6 +927,7 @@ export class LMApp extends HandlebarsApp {
     try {
       this.searchResults = await YouTubeAPI.search(q);
       this.render(false);
+      this._syncCacheState();
     } catch (e) { ui.notifications.error(LF('SearchFailed', { error: e.message })); }
   }
 
@@ -908,14 +1015,26 @@ export class LMApp extends HandlebarsApp {
   }
 
   _updateNowPlaying() {
-    if (this.track) LMMini.update({ title: this.track.displayTitle || this.track.title || '', playing: true });
-    const el = this.element instanceof HTMLElement ? this.element : this.element?.[0];
-    if (!el || !this.track) return;
     const t = this.track;
+    if (t) LMMini.update({ title: t.displayTitle || t.title || '', playing: true });
+    const el = this._el();
+    if (!el) return;
+
+    // Все части плашки есть в разметке всегда — переключаем видимость.
+    // Раньше здесь только заполнялись существующие элементы, и при первом же
+    // треке после открытия окна в DOM была лишь надпись «ничего не играет»:
+    // заполнять было нечего, и она так и висела до следующей перерисовки.
+    const show = (sel, on) => el.querySelector(sel)?.toggleAttribute('hidden', !on);
+    show('.lm-no-track',  !t);
+    show('.lm-np-info',   !!t);
+    show('img.lm-np-art', !!t?.albumArt);
+    show('.lm-np-art-ph', !!t && !t.albumArt);
+    if (!t) return;
+
+    const art = el.querySelector('img.lm-np-art');
+    if (art && t.albumArt) art.src = t.albumArt;
     el.querySelector('.lm-np-title')  && (el.querySelector('.lm-np-title').textContent  = t.displayTitle || t.title || '');
     el.querySelector('.lm-np-artist') && (el.querySelector('.lm-np-artist').textContent = t.artist || '');
-    const art = el.querySelector('.lm-np-art');
-    if (art && t.albumArt) { art.src = t.albumArt; art.style.display = ''; }
     el.querySelectorAll('.lm-track').forEach(row => row.classList.toggle('active', +row.dataset.i === this.trackIdx));
   }
 
