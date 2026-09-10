@@ -246,6 +246,7 @@ export class LMApp extends HandlebarsApp {
     on('#lm-sync-toggle',     'change', e => this._setSync(e.target.checked));
     on('#lm-open-cache',      'click', () => this._openCacheFolder());
     on('#lm-clear-cache',     'click', () => this._clearCache());
+    on('#lm-update-ytdlp',    'click', () => this._updateYtdlp());
     on('#lm-gm-vol-slider',   'input',  e => this._setGMVolume(parseFloat(e.target.value)));
 
     // Progress bar drag
@@ -591,6 +592,53 @@ export class LMApp extends HandlebarsApp {
     }
     ui.notifications.warn(L('HelperDownCache'));
   }
+
+  // ── Обновление yt-dlp (кнопка в шапке) ────────────────────────────────────
+  // YouTube ломает извлечение волнами, а бинарник сам не обновляется. Когда он
+  // устаревает, скачивание падает с 403, модуль откатывается на YouTube-iframe,
+  // и у игроков появляется ошибка 150 — при том что у Мастера всё играет.
+  // Поэтому кнопка нужна на виду, а не в документации.
+  async _updateYtdlp() {
+    // Обновляем только своего помощника: внешний сервер «Моя Музыка» не наш.
+    let current;
+    try {
+      const res = await fetch(`${LMApp.HELPER_URL}/api/ytdlp/version`,
+        { signal: AbortSignal.timeout(5000) });
+      current = await res.json().catch(() => ({}));
+      if (!res.ok || !current.version) throw new Error(current.error || `HTTP ${res.status}`);
+    } catch {
+      ui.notifications.warn(L('HelperDownUpdate'));
+      return;
+    }
+
+    const msg = LF('UpdateConfirm', {
+      version: current.version,
+      days: current.ageDays ?? '?'
+    });
+    let ok;
+    if (foundry.applications?.api?.DialogV2) {
+      ok = await foundry.applications.api.DialogV2.confirm({
+        window: { title: L('UpdateTitle') },
+        content: `<p>${msg}</p>`
+      }).catch(() => false);
+    } else {
+      ok = await Dialog.confirm({ title: L('UpdateTitle'), content: `<p>${msg}</p>` }).catch(() => false);
+    }
+    if (!ok) return;
+
+    ui.notifications.info(L('Updating'));
+    try {
+      // Таймаут не ставим: качается около 18 МБ, на медленной сети это минуты.
+      const res  = await fetch(`${LMApp.HELPER_URL}/api/ytdlp/update`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (data.updated) ui.notifications.info(LF('Updated', { was: data.from, now: data.to }));
+      else ui.notifications.info(LF('UpdateNotNeeded', { version: data.to }));
+    } catch (e) {
+      ui.notifications.error(LF('UpdateError', { error: e?.message ?? e }));
+    }
+  }
+
 
   async _playTrack(videoId) {
     // 0. Уже на диске — играем немедленно, никого не спрашивая

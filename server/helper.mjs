@@ -22,6 +22,8 @@
  *   GET /api/cache/status          → { files: n, bytes: n }
  *   POST /api/cache/clear          → { cleared: n, freed: bytes }
  *   POST /api/cache/open           → { opened: true }    (открывает cache/ в Проводнике)
+ *   GET  /api/ytdlp/version       → { version, ageDays }
+ *   POST /api/ytdlp/update        → { updated, from, to }
  */
 
 const PORT  = 8766;
@@ -149,6 +151,30 @@ async function _download(id) {
   return f;
 }
 
+// ── yt-dlp: версия и обновление ──────────────────────────────────────────────
+
+/** Версия бинарника, вида 2026.08.19. */
+async function ytdlpVersion() {
+  const out = await new Deno.Command(YTDLP, {
+    args: ['--version'], stdout: 'piped', stderr: 'piped',
+  }).output();
+  if (!out.success) throw new Error('yt-dlp не отвечает');
+  return new TextDecoder('utf-8').decode(out.stdout).trim();
+}
+
+/**
+ * Возраст версии в днях. Выпуски yt-dlp называются датой, поэтому дату
+ * можно прочитать прямо из номера, не ходя в сеть.
+ */
+function versionAgeDays(version) {
+  const parts = String(version ?? '').split('.');
+  if (parts.length < 3) return null;
+  const y = Number(parts[0]), mo = Number(parts[1]), d = Number(parts[2]);
+  if (!y || !mo || !d) return null;
+  return Math.floor((Date.now() - Date.UTC(y, mo - 1, d)) / 86400000);
+}
+
+
 // ── HTTP API ─────────────────────────────────────────────────────────────────
 
 // Адреса этой самой машины. Foundry открывают не только по localhost, но и по
@@ -257,6 +283,38 @@ async function handler(req) {
       return json({ opened: false, error: String(e.message ?? e) }, 500, origin);
     }
   }
+
+  if (u.pathname === '/api/ytdlp/version') {
+    try {
+      const version = await ytdlpVersion();
+      return json({ version, ageDays: versionAgeDays(version) }, 200, origin);
+    } catch (e) {
+      return json({ error: String(e.message ?? e) }, 500, origin);
+    }
+  }
+
+  // Обновление самого yt-dlp: он заменяет себя по -U. Помощник при этом
+  // перезапускать не надо — бинарник поднимается заново на каждое скачивание.
+  if (u.pathname === '/api/ytdlp/update') {
+    if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405, origin);
+    const before = await ytdlpVersion().catch(() => null);
+    log('⬆️ Обновляю yt-dlp…');
+    const out = await new Deno.Command(YTDLP, {
+      args: ['-U'], stdout: 'piped', stderr: 'piped',
+    }).output();
+    const dec = new TextDecoder('utf-8');
+    const text = (dec.decode(out.stdout) + dec.decode(out.stderr)).trim();
+    const after = await ytdlpVersion().catch(() => before);
+    if (!out.success) {
+      const last = text.split(String.fromCharCode(10)).pop() || 'yt-dlp -U failed';
+      log(`⛔ Обновить yt-dlp не удалось: ${last}`);
+      return json({ updated: false, from: before, to: after, error: last }, 502, origin);
+    }
+    const updated = Boolean(before) && Boolean(after) && before !== after;
+    log(updated ? `✅ yt-dlp обновлён: ${before} → ${after}` : `ℹ️ yt-dlp уже свежий: ${after}`);
+    return json({ updated, from: before, to: after, ageDays: versionAgeDays(after) }, 200, origin);
+  }
+
 
   return json({ error: 'not found' }, 404, origin);
 }
