@@ -13,6 +13,8 @@ const LS = {
   FAB_POS:      'lazy-music-fab-pos',
   SERVER_URL:   'lazy-music-server-url',
   CUSTOM_PLS:   'lazy-music-custom-playlists',
+  PHONE_ADDR:   'lazy-music-phone-address',
+  PHONE_TOKEN:  'lazy-music-phone-token',
 };
 
 export { MODULE_ID, LS };
@@ -26,6 +28,11 @@ export class LMSettings {
       ['youtubeApiKey',    String,  '',    true,  'client', 'LAZYMUSIC.Settings.YouTubeApiKey',    'LAZYMUSIC.Settings.YouTubeApiKeyHint'],
       ['serverUrl',        String,  '',    true,  'client', 'LAZYMUSIC.Settings.ServerUrl',        'LAZYMUSIC.Settings.ServerUrlHint'],
       ['syncToPlayers',    Boolean, true,  true,  'world',  'LAZYMUSIC.Settings.SyncToPlayers',    'LAZYMUSIC.Settings.SyncToPlayersHint'],
+      // Телефон настраивается в своём окне, а не здесь: адрес и код человек
+      // переписывает с экрана телефона разом, и разносить их по двум местам
+      // незачем. config: false — в общем списке настроек их не показываем
+      ['phoneAddress',     String,  '',    false, 'client', 'LAZYMUSIC.Settings.PhoneAddress',     'LAZYMUSIC.Settings.PhoneAddressHint'],
+      ['phoneToken',       String,  '',    false, 'client', 'LAZYMUSIC.Settings.PhoneToken',       'LAZYMUSIC.Settings.PhoneTokenHint'],
     ];
     for (const [key, type, def, config, scope, name, hint] of defs) {
       game.settings.register(MODULE_ID, key, {
@@ -64,7 +71,10 @@ export class LMSettings {
   }
 
   static _lsKey(key) {
-    return { youtubeApiKey: LS.YT_KEY, syncToPlayers: LS.SYNC, serverUrl: LS.SERVER_URL }[key];
+    return {
+      youtubeApiKey: LS.YT_KEY, syncToPlayers: LS.SYNC, serverUrl: LS.SERVER_URL,
+      phoneAddress: LS.PHONE_ADDR, phoneToken: LS.PHONE_TOKEN
+    }[key];
   }
 
   static _lsSet(key, val) {

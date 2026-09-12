@@ -7,6 +7,7 @@ import { YouTubeAPI }   from './youtube-api.mjs';
 import { LMSocket }     from './socket.mjs';
 import { LMMini }       from './mini-player.mjs';
 import { LMCache }      from './cache.mjs';
+import { LMPhone }      from './phone.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -227,6 +228,7 @@ export class LMApp extends HandlebarsApp {
     const on = (sel, ev, fn) => root.querySelectorAll(sel).forEach(el => { el.removeEventListener(ev, el['_lm_' + sel + ev]); const h = fn.bind(this); el['_lm_' + sel + ev] = h; el.addEventListener(ev, h); });
 
     on('#lm-add-playlist',    'click', () => this._addPlaylistDialog());
+    on('#lm-from-phone',      'click', () => this._fromPhone());
     on('.lm-pl-item',         'click', e => { if (!e.target.closest('.lm-pl-del')) this._loadPlaylist(e.currentTarget.dataset.id); });
     on('.lm-pl-del',          'click', e => { e.stopPropagation(); this._delPlaylist(e.currentTarget.closest('.lm-pl-item').dataset.id); });
     on('.lm-track',           'click', e => { if (!e.target.closest('.lm-rename-btn, .lm-addpl-btn, .lm-deltrack-btn')) this._playIdx(+e.currentTarget.dataset.i); });
@@ -1087,6 +1089,119 @@ export class LMApp extends HandlebarsApp {
   }
 
   _fmt(s) { s = Math.floor(s || 0); return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
+
+  // ── Забор библиотеки с телефона ───────────────────────────────────────────
+  // Телефон — источник, модуль — приёмник; почему так, см. phone.mjs.
+
+  async _fromPhone() {
+    const form = await this._phoneForm(
+      LMSettings.get('phoneAddress') || '',
+      LMSettings.get('phoneToken') || ''
+    );
+    if (!form) return;
+
+    let address = LMPhone.normalize(form.address);
+    LMSettings.set('phoneAddress', address);
+    LMSettings.set('phoneToken', form.token);
+
+    let remote = null;
+    try {
+      remote = await LMPhone.pull(address, form.token);
+    } catch (e) {
+      // Не ответил — чаще всего роутер выдал телефону другой адрес.
+      // Код при этом прежний, поэтому переспрашивать его не надо
+      if (!(await this._phoneAsk(L('PhoneSearchAsk'), `${e.message}<br><br>${L('PhoneSearchWhy')}`))) return;
+      ui.notifications.info(L('PhoneSearching'));
+      const found = await LMPhone.find(address);
+      if (!found) return ui.notifications.warn(L('PhoneNotFound'));
+      address = found;
+      LMSettings.set('phoneAddress', address);
+      ui.notifications.info(LF('PhoneFound', { address }));
+      try {
+        remote = await LMPhone.pull(address, form.token);
+      } catch (again) {
+        return ui.notifications.error(again.message);
+      }
+    }
+
+    const plan = LMPhone.plan(remote, LMSettings.getCustomPlaylists());
+    if (LMPhone.empty(plan)) return ui.notifications.info(L('PhoneNothingNew'));
+    if (!(await this._phoneConfirm(plan))) return;
+
+    LMPhone.apply(plan);
+    this._refreshPlaylists();
+    // Открытый список мог измениться прямо под руками — перечитываем
+    if (this.playlist?.custom) await this._loadPlaylist(this.playlist.id);
+    else this.render(false);
+    ui.notifications.info(LF('PhoneDone', { added: plan.added, removed: plan.removed }));
+  }
+
+  /** Окно с адресом и кодом. null — передумали. */
+  async _phoneForm(address, token) {
+    const esc = (s) => foundry.utils.escapeHTML(String(s || ''));
+    const style = 'width:100%;margin-top:4px;background:#1a1a24;border:1px solid #2a2a3e;color:#e8e0d0;padding:5px 8px;border-radius:4px;';
+    const content = `<div style="padding:8px">
+      <p style="margin:0 0 8px;opacity:.75;font-size:12px">${L('PhoneHint')}</p>
+      <label>${L('PhoneAddress')}</label>
+      <input type="text" name="address" value="${esc(address)}" placeholder="192.168.1.42:8780" style="${style}" autofocus>
+      <label style="display:block;margin-top:8px">${L('PhoneToken')}</label>
+      <input type="text" name="token" value="${esc(token)}" style="${style}">
+    </div>`;
+    const read = (root) => ({
+      address: root?.querySelector('[name=address]')?.value?.trim() ?? '',
+      token:   root?.querySelector('[name=token]')?.value?.trim() ?? ''
+    });
+
+    if (foundry.applications?.api?.DialogV2) {
+      return await foundry.applications.api.DialogV2.prompt({
+        window: { title: L('FromPhone') },
+        content,
+        ok: { label: L('PhoneTake'), callback: (event) => read(event.target.closest('form')) }
+      }).catch(() => null);
+    }
+    return await Dialog.prompt({
+      title: L('FromPhone'), content, label: L('PhoneTake'),
+      callback: h => read(h[0] ?? h)
+    }).catch(() => null);
+  }
+
+  /**
+   * Показывает, что именно изменится, и ждёт согласия.
+   *
+   * Без этого окна перенос был бы опасен: список здесь становится точно
+   * таким же, как на телефоне, а значит что-то может и пропасть.
+   */
+  async _phoneConfirm(plan) {
+    const esc = (s) => foundry.utils.escapeHTML(String(s || ''));
+    const rows = plan.lists
+      .filter(l => l.isNew || l.added || l.removed)
+      .map(l => {
+        const marks = [];
+        if (l.added)   marks.push(`<span style="color:#7ac77a">+${l.added}</span>`);
+        if (l.removed) marks.push(`<span style="color:#d08a8a">&minus;${l.removed}</span>`);
+        const tag = l.isNew ? ` <em style="opacity:.6">${L('PhoneNewList')}</em>` : '';
+        return `<li>${esc(l.name)}${tag} ${marks.join(' ')}</li>`;
+      }).join('');
+    const notes = [];
+    if (plan.renames.length) notes.push(LF('PhoneRenames', { n: plan.renames.length }));
+    if (plan.untouched)      notes.push(LF('PhoneUntouched', { n: plan.untouched }));
+    const content = `<div style="padding:8px">
+      <p style="margin:0 0 6px">${LF('PhoneFrom', { device: esc(plan.device) })}</p>
+      <ul style="margin:0 0 8px 16px">${rows}</ul>
+      ${notes.length ? `<p style="opacity:.75;font-size:12px;margin:0">${notes.join('<br>')}</p>` : ''}
+    </div>`;
+    return this._phoneAsk(L('PhoneApply'), content);
+  }
+
+  /** Да/нет поверх окна модуля — в v14 и в старых оно зовётся по-разному. */
+  async _phoneAsk(title, content) {
+    if (foundry.applications?.api?.DialogV2) {
+      return await foundry.applications.api.DialogV2.confirm({
+        window: { title }, content, modal: true
+      }).catch(() => false);
+    }
+    return await Dialog.confirm({ title, content }).catch(() => false);
+  }
 
   close(options = {}) {
     this._stopProgress();
