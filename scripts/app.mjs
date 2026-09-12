@@ -1101,6 +1101,7 @@ export class LMApp extends HandlebarsApp {
     if (!form) return;
 
     let address = LMPhone.normalize(form.address);
+    if (!address) return ui.notifications.warn(L('PhoneNoAddress'));
     LMSettings.set('phoneAddress', address);
     LMSettings.set('phoneToken', form.token);
 
@@ -1156,7 +1157,13 @@ export class LMApp extends HandlebarsApp {
       return await foundry.applications.api.DialogV2.prompt({
         window: { title: L('FromPhone') },
         content,
-        ok: { label: L('PhoneTake'), callback: (event) => read(event.target.closest('form')) }
+        // Поля ищем в самом окне: event.target — нажатая кнопка, и
+        // closest('form') от неё в разных версиях доходит не всегда
+        ok: {
+          label: L('PhoneTake'),
+          callback: (event, button, dialog) =>
+            read(dialog?.element ?? event.target?.closest('form') ?? event.target?.form)
+        }
       }).catch(() => null);
     }
     return await Dialog.prompt({
