@@ -123,8 +123,47 @@ export class LMSettings {
   // ── Свои плейлисты (собираются вручную, например из поиска) ──────────────
   // Формат: [{ id: 'custom-…', name, tracks: [{id,title,artist,albumArt,source}] }]
 
+  /**
+   * Новый идентификатор списка.
+   *
+   * Раньше это было просто время в миллисекундах. Пока списки заводили
+   * руками по одному, этого хватало; перенос с телефона заводит их в цикле,
+   * и все попадают в одну миллисекунду. Списки с одинаковым идентификатором
+   * выглядят по-разному, но открывается только первый — остальные ищутся по
+   * тому же ключу, — а удаление сносит разом все. Отсюда случайный хвост и
+   * явная проверка на совпадение.
+   */
+  static _freshCustomId(taken = new Set()) {
+    let id;
+    do {
+      id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    } while (taken.has(id));
+    return id;
+  }
+
   static getCustomPlaylists() {
-    try { return JSON.parse(localStorage.getItem(LS.CUSTOM_PLS) || '[]'); } catch { return []; }
+    let list;
+    try { list = JSON.parse(localStorage.getItem(LS.CUSTOM_PLS) || '[]'); } catch { return []; }
+    if (!Array.isArray(list)) return [];
+
+    // Самолечение: списки, заведённые до этой починки, могли получить
+    // одинаковые идентификаторы. Чинится молча и один раз — человеку
+    // незачем знать, что у него внутри хранилища
+    const seen = new Set();
+    let fixed = false;
+    for (const pl of list) {
+      if (!pl) continue;
+      if (!pl.id || seen.has(pl.id)) {
+        pl.id = this._freshCustomId(seen);
+        fixed = true;
+      }
+      seen.add(pl.id);
+    }
+    if (fixed) {
+      this.saveCustomPlaylists(list);
+      console.log('Lazy Music | одинаковые идентификаторы своих списков починены');
+    }
+    return list;
   }
 
   static saveCustomPlaylists(list) {
@@ -133,7 +172,11 @@ export class LMSettings {
 
   static createCustomPlaylist(name) {
     const list = this.getCustomPlaylists();
-    const pl = { id: 'custom-' + Date.now().toString(36), name: name || game.i18n.localize('LAZYMUSIC.NewCustomPlaylist'), tracks: [] };
+    const pl = {
+      id: this._freshCustomId(new Set(list.map(p => p.id))),
+      name: name || game.i18n.localize('LAZYMUSIC.NewCustomPlaylist'),
+      tracks: []
+    };
     list.push(pl);
     this.saveCustomPlaylists(list);
     return pl;
