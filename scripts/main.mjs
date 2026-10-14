@@ -7,6 +7,7 @@ import { LMSocket }       from './socket.mjs';
 import { LMSettings }     from './settings.mjs';
 import { PlayerReceiver } from './player-receiver.mjs';
 import { LMMini }         from './mini-player.mjs';
+import { LMHub }          from './hub.mjs';
 
 Hooks.once('init', () => {
   console.log('Lazy Music | init');
@@ -32,6 +33,11 @@ Hooks.once('ready', () => {
     Hooks.on('renderPlaylistDirectory', _injectButton);
     const el = ui.playlists?.element;
     if (el) _injectButton(ui.playlists, el);
+
+    // Сводка своих списков с приложением Lazy Music на этом компьютере.
+    // Не запущено — молча пропускается
+    Hooks.on('lazyMusicLibrarySynced', change => LMApp._instance?._afterLibrarySync(change));
+    LMHub.start();
   }
 
   // Мини-плеер (у всех) не имеет своего личного регулятора громкости:

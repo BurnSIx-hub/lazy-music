@@ -97,5 +97,6 @@
   "LAZYMUSIC.PhoneRenames": "Custom names to copy: {n}",
   "LAZYMUSIC.PhoneUntouched": "Lists not on the phone, left alone: {n}",
   "LAZYMUSIC.PhoneApply": "Apply",
-  "LAZYMUSIC.PhoneDone": "From phone: {added} added, {removed} removed"
+  "LAZYMUSIC.PhoneDone": "From phone: {added} added, {removed} removed",
+  "LAZYMUSIC.HubSynced": "Lazy Music: playlists synced with the desktop app — +{added} −{removed}"
 }

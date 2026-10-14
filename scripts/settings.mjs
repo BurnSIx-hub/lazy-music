@@ -20,6 +20,22 @@ const LS = {
 export { MODULE_ID, LS };
 
 export class LMSettings {
+  /**
+   * Кому сказать о правке своих списков и названий — сводке с приложением
+   * на ПК (hub.mjs). Правки, которые сама сводка и вносит, идут молча.
+   */
+  static onLibraryChange = null;
+  static _quiet = false;
+
+  static _changed() {
+    if (!this._quiet) this.onLibraryChange?.();
+  }
+
+  static quietly(fn) {
+    this._quiet = true;
+    try { fn(); } finally { this._quiet = false; }
+  }
+
   static register() {
     // Foundry settings — только для отображения в UI настроек.
     // ВАЖНО: ключи API и токены — scope 'client'. World-настройки реплицируются
@@ -168,6 +184,7 @@ export class LMSettings {
 
   static saveCustomPlaylists(list) {
     localStorage.setItem(LS.CUSTOM_PLS, JSON.stringify(list));
+    this._changed();
   }
 
   static createCustomPlaylist(name) {
@@ -218,5 +235,12 @@ export class LMSettings {
     const map = this.getTrackNames();
     if (name) map[id] = name; else delete map[id];
     localStorage.setItem(LS.TRACK_NAMES, JSON.stringify(map));
+    this._changed();
+  }
+
+  /** Все названия разом — их приносит сводка с ПК. */
+  static setTrackNames(map) {
+    localStorage.setItem(LS.TRACK_NAMES, JSON.stringify(map ?? {}));
+    this._changed();
   }
 }

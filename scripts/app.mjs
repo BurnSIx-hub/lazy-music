@@ -1090,6 +1090,26 @@ export class LMApp extends HandlebarsApp {
 
   _fmt(s) { s = Math.floor(s || 0); return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
 
+  // ── Сводка с приложением на ПК ────────────────────────────────────────────
+
+  /**
+   * Сводка поменяла свои списки. Окно перечитывает их; открытый список мог
+   * измениться прямо под руками, а мог и исчезнуть — удалили на телефоне.
+   */
+  async _afterLibrarySync(change) {
+    this._refreshPlaylists();
+    if (this.playlist?.custom) {
+      const still = LMSettings.getCustomPlaylists().some(p => p.id === this.playlist.id);
+      if (still) await this._loadPlaylist(this.playlist.id);
+      else { this.playlist = null; this.tracks = []; this.render(false); }
+    } else {
+      this.render(false);
+    }
+    if (this.rendered && (change.added || change.removed)) {
+      ui.notifications.info(LF('HubSynced', { added: change.added, removed: change.removed }));
+    }
+  }
+
   // ── Забор библиотеки с телефона ───────────────────────────────────────────
   // Телефон — источник, модуль — приёмник; почему так, см. phone.mjs.
 

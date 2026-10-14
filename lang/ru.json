@@ -97,5 +97,6 @@
   "LAZYMUSIC.PhoneRenames": "Своих названий переедет: {n}",
   "LAZYMUSIC.PhoneUntouched": "Списков, которых нет на телефоне, не трогаю: {n}",
   "LAZYMUSIC.PhoneApply": "Перенести",
-  "LAZYMUSIC.PhoneDone": "С телефона: добавлено {added}, убрано {removed}"
+  "LAZYMUSIC.PhoneDone": "С телефона: добавлено {added}, убрано {removed}",
+  "LAZYMUSIC.HubSynced": "Lazy Music: плейлисты сведены с приложением на ПК — +{added} −{removed}"
 }
