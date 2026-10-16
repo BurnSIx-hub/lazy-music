@@ -8,6 +8,7 @@ import { LMSocket }     from './socket.mjs';
 import { LMMini }       from './mini-player.mjs';
 import { LMCache }      from './cache.mjs';
 import { LMPhone }      from './phone.mjs';
+import { PlayerReceiver } from './player-receiver.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -115,6 +116,11 @@ export class LMApp extends HandlebarsApp {
     // volume берётся из game.settings 'core.globalPlaylistVolume' напрямую
     this.shuffle      = false;
     this.repeat       = false;
+    // Очередь — то, что играет, отдельно от открытого в окне (tracks и
+    // searchResults): поиск или другой плейлист, открытые посреди трека,
+    // не подменяют следующий. trackIdx — номер в очереди
+    this.queue        = [];
+    this.queueFrom    = null; // id плейлиста, из которого очередь; null — из поиска
     this.trackIdx     = 0;
     this.position     = 0;
     this.duration     = 0;
@@ -135,8 +141,10 @@ export class LMApp extends HandlebarsApp {
     position: { width: 720, height: 620 }
   };
 
+  // scrollable — Foundry сохраняет прокрутку этих списков при перерисовке:
+  // сводка с ПК перерисовывает окно, и длинный список не должен прыгать наверх
   static PARTS = {
-    main: { template: `modules/${MODULE_ID}/templates/app.html` }
+    main: { template: `modules/${MODULE_ID}/templates/app.html`, scrollable: ['.lm-tracks', '.lm-pl-list'] }
   };
 
   // ── v12/v13 fallback ──────────────────────────────────────────────────────
@@ -231,7 +239,7 @@ export class LMApp extends HandlebarsApp {
     on('#lm-from-phone',      'click', () => this._fromPhone());
     on('.lm-pl-item',         'click', e => { if (!e.target.closest('.lm-pl-del')) this._loadPlaylist(e.currentTarget.dataset.id); });
     on('.lm-pl-del',          'click', e => { e.stopPropagation(); this._delPlaylist(e.currentTarget.closest('.lm-pl-item').dataset.id); });
-    on('.lm-track',           'click', e => { if (!e.target.closest('.lm-rename-btn, .lm-addpl-btn, .lm-deltrack-btn')) this._playIdx(+e.currentTarget.dataset.i); });
+    on('.lm-track',           'click', e => { if (!e.target.closest('.lm-rename-btn, .lm-addpl-btn, .lm-deltrack-btn')) this._playFromView(+e.currentTarget.dataset.i); });
     on('.lm-rename-btn',      'click', e => { e.stopPropagation(); this._renameTrack(+e.currentTarget.closest('.lm-track').dataset.i); });
     on('.lm-addpl-btn',       'click', e => { e.stopPropagation(); this._addTrackToCustomDialog(+e.currentTarget.closest('.lm-track').dataset.i); });
     on('.lm-deltrack-btn',    'click', e => { e.stopPropagation(); this._removeTrackFromCustom(+e.currentTarget.closest('.lm-track').dataset.i); });
@@ -244,7 +252,11 @@ export class LMApp extends HandlebarsApp {
     // Громкость управляется ползунком 'Музыка' в панели Foundry
     on('#lm-search-input',    'keydown', e => { if (e.key === 'Enter') this._search(e.target.value); });
     on('#lm-search-btn',      'click', () => this._search(root.querySelector('#lm-search-input')?.value));
-    on('#lm-clear-search',    'click', () => { this.searchMode = false; this.searchResults = []; this.render(false); });
+    on('#lm-clear-search',    'click', () => {
+      const input = root.querySelector('#lm-search-input');
+      if (input) input.value = '';
+      this.searchMode = false; this.searchResults = []; this._scrollTop = true; this.render(false);
+    });
     on('#lm-sync-toggle',     'change', e => this._setSync(e.target.checked));
     on('#lm-open-cache',      'click', () => this._openCacheFolder());
     on('#lm-clear-cache',     'click', () => this._clearCache());
@@ -280,7 +292,27 @@ export class LMApp extends HandlebarsApp {
   }
 
   // ApplicationV2 hook
-  _onRender(context, options) { this._attachListeners(this.element); }
+  _onRender(context, options) {
+    this._attachListeners(this.element);
+    // Открыли другой список или поиск — его смотрят с начала
+    if (this._scrollTop) {
+      this._scrollTop = false;
+      const list = this._el()?.querySelector('.lm-tracks');
+      if (list) list.scrollTop = 0;
+    }
+    // Окно открыли заново посреди трека: полоса встаёт на место и идёт дальше
+    if (this.track) { this._readPosition(); this._updateProgressBar(); }
+    if (this.playing) this._startProgress();
+  }
+
+  // Перерисовка не стирает набранное в поиске: сводка с ПК может прийти,
+  // пока Мастер печатает. Фокус Foundry возвращает сам
+  _syncPartState(partId, newElement, priorElement, state) {
+    super._syncPartState?.(partId, newElement, priorElement, state);
+    const was = priorElement?.querySelector('#lm-search-input');
+    const now = newElement?.querySelector('#lm-search-input');
+    if (was && now) now.value = was.value;
+  }
   // v12/v13 hook
   activateListeners(html)     { super.activateListeners?.(html); this._attachListeners(html); }
 
@@ -332,26 +364,41 @@ export class LMApp extends HandlebarsApp {
     const pl = this.playlists.find(p => p.id === id);
     if (!pl) return;
     this.playlist = pl;
+    this.searchMode = false; this.searchResults = [];
+    this._scrollTop = true;
 
     // Свой плейлист — треки лежат локально, в сеть ходить не нужно
     if (pl.custom) {
-      const stored = LMSettings.getCustomPlaylists().find(p => p.id === id);
-      this.tracks = (stored?.tracks ?? []).map(t => {
-        const customName = LMSettings.getTrackName(t.id);
-        return { ...t, displayTitle: customName || t.title, isRenamed: !!customName };
-      });
-      this.searchMode = false; this.searchResults = [];
+      this.tracks = this._customTracks(id);
       this.render(false);
       this._syncCacheState();
       return;
     }
 
+    // Пока грузится, в окне значок загрузки, а не прежний список.
+    // Играющему это не мешает: у него своя очередь
+    this.tracks = [];
+    this.render(false);
     ui.notifications.info(LF('LoadingPlaylist', { name: pl.name }));
     try {
-      this.tracks = await YouTubeAPI.getPlaylistItems(id);
+      const tracks = await YouTubeAPI.getPlaylistItems(id);
+      if (this.playlist?.id !== id) return; // пока грузился, открыли другой
+      this.tracks = tracks;
       this.render(false);
       this._syncCacheState();
-    } catch (e) { ui.notifications.error(LF('LoadFailed', { error: e.message })); }
+    } catch (e) {
+      ui.notifications.error(LF('LoadFailed', { error: e.message }));
+      if (this.playlist?.id === id) { this.playlist = null; this.render(false); }
+    }
+  }
+
+  /** Треки своего списка из хранилища, с переименованиями. */
+  _customTracks(id) {
+    const stored = LMSettings.getCustomPlaylists().find(p => p.id === id);
+    return (stored?.tracks ?? []).map(t => {
+      const customName = LMSettings.getTrackName(t.id);
+      return { ...t, displayTitle: customName || t.title, isRenamed: !!customName };
+    });
   }
 
   // ── Свои плейлисты: добавление/удаление треков ────────────────────────────
@@ -405,8 +452,7 @@ export class LMApp extends HandlebarsApp {
     ui.notifications.info(added
       ? LF('TrackAdded', { track: track.displayTitle || track.title, playlist: plName })
       : LF('AlreadyInPlaylist', { name: plName }));
-    this._refreshPlaylists();
-    this.render(false);
+    this._afterLibraryChange();
   }
 
   _removeTrackFromCustom(i) {
@@ -414,10 +460,47 @@ export class LMApp extends HandlebarsApp {
     const track = this.tracks[i];
     if (!track) return;
     LMSettings.removeTrackFromCustomPlaylist(this.playlist.id, track.id);
-    this.tracks.splice(i, 1);
-    if (this.trackIdx > i) this.trackIdx--;
+    this._afterLibraryChange();
+  }
+
+  /**
+   * Свои списки поменялись — правкой здесь, сводкой с ПК или переносом с
+   * телефона. Открытый список перечитывается, не трогая поиск, а очередь
+   * идёт за своим списком.
+   */
+  _afterLibraryChange() {
     this._refreshPlaylists();
+    if (this.playlist?.custom) {
+      this.playlist = this.playlists.find(p => p.id === this.playlist.id) ?? null;
+      this.tracks = this.playlist ? this._customTracks(this.playlist.id) : [];
+    }
+    this._followQueue();
     this.render(false);
+  }
+
+  /**
+   * Очередь из своего списка повторяет его нынешний вид, а играющий трек
+   * остаётся играющим: номер в очереди ищется по нему. Иначе лайк с
+   * телефона в начало списка сдвинул бы всё на одну строку, и трек сыграл
+   * бы дважды. Убрали сам играющий — дальше пойдёт тот, что стоял за ним.
+   * Список удалили или переименовали — очередь доигрывает, как была.
+   */
+  _followQueue() {
+    const from = this.queueFrom;
+    if (!from?.startsWith('custom-')) return;
+    if (!LMSettings.getCustomPlaylists().some(p => p.id === from)) return;
+    const fresh = this._customTracks(from);
+    const at = this.track ? fresh.findIndex(t => t.id === this.track.id) : -1;
+    if (at >= 0) {
+      this.trackIdx = at;
+    } else {
+      // Встаём перед первым из тех, что шли за играющим и остались в списке
+      const after = this.queue.slice(this.trackIdx + 1)
+        .map(t => fresh.findIndex(f => f.id === t.id))
+        .find(i => i >= 0);
+      this.trackIdx = (after ?? fresh.length) - 1;
+    }
+    this.queue = fresh;
   }
 
   // ── Player synchronization ───────────────────────────────────────────────
@@ -456,24 +539,38 @@ export class LMApp extends HandlebarsApp {
   }
 
   syncStateToPlayer(userId) {
-    if (!this._syncEnabled() || !userId) return;
+    // Отвечает только тот, у кого играет: второй Мастер с пустым окном
+    // своим «ничего» остановил бы музыку у подключившегося
+    if (!this._syncEnabled() || !userId || !this.track) return;
     this._emitState(userId);
   }
 
   // ── Playback ──────────────────────────────────────────────────────────────
+
+  /** Нажали трек в окне: очередью становится то, что сейчас открыто. */
+  _playFromView(i) {
+    const pool = this.searchMode ? this.searchResults : this.tracks;
+    if (!pool[i] || this._playLock) return;
+    this.queue = [...pool];
+    this.queueFrom = this.searchMode ? null : (this.playlist?.id ?? null);
+    this._skippedIds?.clear();
+    // Слушал музыку другого Мастера — теперь ведёт сам, чужая замолкает
+    PlayerReceiver.stop();
+    this._playIdx(i);
+  }
+
+  /** Играет i-й трек очереди. */
   async _playIdx(i) {
     if (this._playLock) return;
+    if (i < 0 || i >= this.queue.length) return;
     this._playLock = true;
     setTimeout(() => this._playLock = false, 300);
 
-    const pool = this.searchMode ? this.searchResults : this.tracks;
-    if (i < 0 || i >= pool.length) return;
     this.trackIdx  = i;
-    this.track     = pool[i];
+    this.track     = this.queue[i];
     this.position  = 0;
     this.duration  = 0;
     this.playing   = true;
-    if (this.searchMode) this.tracks = [...this.searchResults];
 
     this._updateNowPlaying();
 
@@ -691,7 +788,7 @@ export class LMApp extends HandlebarsApp {
       _gmAudio?.pause();
       initGMYTPlayer((p) => {
         if (this.track?.id !== videoId) return;
-        p.setVolume(Math.round(this._getFoundryVol() * 100));
+        p.setVolume(Math.round(Math.min(1, this._getFoundryVol() * this.gmVolume) * 100));
         p.loadVideoById(videoId);
       });
       if (this._syncEnabled()) {
@@ -735,8 +832,8 @@ export class LMApp extends HandlebarsApp {
 
   /** Греет кэш следующего трека, чтобы переход был мгновенным. */
   _prefetchNext(videoId, source = null) {
-    if (this.shuffle || this.tracks.length < 2) return;
-    const next = this.tracks[(this.trackIdx + 1) % this.tracks.length];
+    if (this.shuffle || this.queue.length < 2) return;
+    const next = this.queue[(this.trackIdx + 1) % this.queue.length];
     if (!next || next.id === videoId || next.source !== 'youtube') return;
     if (LMCache.has(next.id)) return;               // уже на диске, качать нечего
     if (this._helperAlive === false) return;        // качать некому
@@ -824,7 +921,7 @@ export class LMApp extends HandlebarsApp {
       } else {
         a.play().catch(() => {});
         if (this._syncEnabled()) {
-          LMSocket.emit('play', { ...this.track, videoId: this.track.id, streamUrl: this._relayUrl || a.src, position: a.currentTime || this.position });
+          LMSocket.emit('play', { ...this.track, videoId: this.track.id, streamUrl: this._relayUrl || a.src, position: this._readPosition() });
         }
       }
     } else {
@@ -835,7 +932,7 @@ export class LMApp extends HandlebarsApp {
       } else {
         p?.playVideo?.();
         if (this._syncEnabled()) {
-          LMSocket.emit('play', { ...this.track, videoId: this.track.id, position: this.position });
+          LMSocket.emit('play', { ...this.track, videoId: this.track.id, position: this._readPosition() });
         }
       }
     }
@@ -856,14 +953,15 @@ export class LMApp extends HandlebarsApp {
   }
 
   _prev() {
-    if (this.position > 3) { this._seekTo(0); return; }
-    const i = this.shuffle ? Math.floor(Math.random() * this.tracks.length) : Math.max(0, this.trackIdx - 1);
+    // Позицию спрашиваем у плеера: при закрытом окне она не обновляется
+    if (this.track && this._readPosition() > 3) { this._seekTo(0); return; }
+    const i = this.shuffle ? Math.floor(Math.random() * this.queue.length) : Math.max(0, this.trackIdx - 1);
     this._playIdx(i);
   }
 
   _next() {
-    let i = this.shuffle ? Math.floor(Math.random() * this.tracks.length) : this.trackIdx + 1;
-    if (!this.shuffle && i >= this.tracks.length) { if (this.repeat) i = 0; else return this._stop(); }
+    let i = this.shuffle ? Math.floor(Math.random() * this.queue.length) : this.trackIdx + 1;
+    if (!this.shuffle && i >= this.queue.length) { if (this.repeat) i = 0; else return this._stop(); }
     this._playIdx(i);
   }
 
@@ -953,7 +1051,7 @@ export class LMApp extends HandlebarsApp {
     if (this.track?.id) this._skippedIds.add(this.track.id);
 
     // Если пропустили все треки — останавливаемся
-    if (this._skippedIds.size >= this.tracks.length) {
+    if (this._skippedIds.size >= this.queue.length) {
       this._skippedIds.clear();
       this._errorHandling = false;
       ui.notifications.error(L('AllTracksBlocked'));
@@ -976,6 +1074,7 @@ export class LMApp extends HandlebarsApp {
     this.searchMode = true;
     try {
       this.searchResults = await YouTubeAPI.search(q);
+      this._scrollTop = true;
       this.render(false);
       this._syncCacheState();
     } catch (e) { ui.notifications.error(LF('SearchFailed', { error: e.message })); }
@@ -1023,23 +1122,28 @@ export class LMApp extends HandlebarsApp {
     this._stopProgress();
     this._progressInterval = setInterval(() => {
       if (this.seeking) return;
-      if (this.relayMode) {
-        const a = getGMAudio();
-        this.position = a.currentTime || 0;
-        this.duration = a.duration || this.duration;
-        this._updateProgressBar();
-        return;
-      }
-      const p = getYTPlayer();
-      if (p?.getCurrentTime) {
-        this.position = p.getCurrentTime();
-        this.duration = p.getDuration?.() || this.duration;
-        this._updateProgressBar();
-      }
+      this._readPosition();
+      this._updateProgressBar();
     }, 500);
   }
 
   _stopProgress() { clearInterval(this._progressInterval); this._progressInterval = null; }
+
+  /** Где сейчас играющий трек — спрашивает сам плеер. */
+  _readPosition() {
+    if (this.relayMode) {
+      const a = getGMAudio();
+      this.position = a.currentTime || 0;
+      this.duration = a.duration || this.duration;
+    } else {
+      const p = getYTPlayer();
+      if (p?.getCurrentTime) {
+        this.position = p.getCurrentTime() || 0;
+        this.duration = p.getDuration?.() || this.duration;
+      }
+    }
+    return this.position;
+  }
 
   _updateProgressBar() {
     const el = this.element instanceof HTMLElement ? this.element : this.element?.[0];
@@ -1085,7 +1189,8 @@ export class LMApp extends HandlebarsApp {
     if (art && t.albumArt) art.src = t.albumArt;
     el.querySelector('.lm-np-title')  && (el.querySelector('.lm-np-title').textContent  = t.displayTitle || t.title || '');
     el.querySelector('.lm-np-artist') && (el.querySelector('.lm-np-artist').textContent = t.artist || '');
-    el.querySelectorAll('.lm-track').forEach(row => row.classList.toggle('active', +row.dataset.i === this.trackIdx));
+    // По идентификатору, а не по номеру: в окне может быть открыт не тот список, что играет
+    el.querySelectorAll('.lm-track').forEach(row => row.classList.toggle('active', row.dataset.id === t.id));
   }
 
   _fmt(s) { s = Math.floor(s || 0); return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
@@ -1093,18 +1198,12 @@ export class LMApp extends HandlebarsApp {
   // ── Сводка с приложением на ПК ────────────────────────────────────────────
 
   /**
-   * Сводка поменяла свои списки. Окно перечитывает их; открытый список мог
-   * измениться прямо под руками, а мог и исчезнуть — удалили на телефоне.
+   * Сводка поменяла свои списки. Открытый список мог измениться прямо под
+   * руками, а мог и исчезнуть — удалили на телефоне. Поиск и очередь при
+   * этом не сбиваются (см. _afterLibraryChange).
    */
-  async _afterLibrarySync(change) {
-    this._refreshPlaylists();
-    if (this.playlist?.custom) {
-      const still = LMSettings.getCustomPlaylists().some(p => p.id === this.playlist.id);
-      if (still) await this._loadPlaylist(this.playlist.id);
-      else { this.playlist = null; this.tracks = []; this.render(false); }
-    } else {
-      this.render(false);
-    }
+  _afterLibrarySync(change) {
+    this._afterLibraryChange();
     if (this.rendered && (change.added || change.removed)) {
       ui.notifications.info(LF('HubSynced', { added: change.added, removed: change.removed }));
     }
@@ -1150,10 +1249,8 @@ export class LMApp extends HandlebarsApp {
     if (!(await this._phoneConfirm(plan))) return;
 
     LMPhone.apply(plan);
-    this._refreshPlaylists();
     // Открытый список мог измениться прямо под руками — перечитываем
-    if (this.playlist?.custom) await this._loadPlaylist(this.playlist.id);
-    else this.render(false);
+    this._afterLibraryChange();
     ui.notifications.info(LF('PhoneDone', { added: plan.added, removed: plan.removed }));
   }
 

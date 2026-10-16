@@ -24,6 +24,11 @@ const LAST_KEY = 'lazy-music-hub-last';
 
 /** Раз в минуту — чтобы лайк с телефона доехал, пока идёт игра. */
 const PERIOD = 60_000;
+/**
+ * Приложение не отвечает — спрашиваем реже: каждый неотвеченный запрос
+ * браузер пишет в консоль красной строкой. Правка здесь спрашивает сразу.
+ */
+const PERIOD_OFFLINE = 5 * 60_000;
 /** Пауза после правки: пачка правок — одна сводка. */
 const DEBOUNCE = 2_000;
 const TIMEOUT = 5_000;
@@ -31,11 +36,18 @@ const TIMEOUT = 5_000;
 const norm = n => String(n ?? '').trim().toLowerCase();
 const isYouTube = t => !t.source || t.source === 'youtube';
 
+/** Те же названия, порядок не важен: центр отдаёт их по алфавиту. */
+const sameNames = (a, b) => {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every(k => a[k] === b[k]);
+};
+
 export const LMHub = {
   online: false,
   busy: false,
   _timer: null,
   _soon: null,
+  _again: false,
 
   get lastSync() { return Number(localStorage.getItem(LAST_KEY) || 0); },
 
@@ -52,14 +64,26 @@ export const LMHub = {
   start() {
     if (!game.user.isGM) return;
     LMSettings.onLibraryChange = () => this.soon();
-    this.sync('запуск');
-    clearInterval(this._timer);
-    this._timer = setInterval(() => this.sync('по часам'), PERIOD);
+    this._tick('запуск');
+  },
+
+  /** Сводка и следующая по часам — через минуту или, без ответа, через пять. */
+  async _tick(reason) {
+    clearTimeout(this._timer);
+    try {
+      await this.sync(reason);
+    } catch (e) {
+      console.warn('Lazy Music | сводка с ПК:', e);
+    } finally {
+      // Пока ждали ответа, мог пройти ещё один такт — часы всегда одни
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => this._tick('по часам'), this.online ? PERIOD : PERIOD_OFFLINE);
+    }
   },
 
   soon() {
     clearTimeout(this._soon);
-    this._soon = setTimeout(() => this.sync('после правки'), DEBOUNCE);
+    this._soon = setTimeout(() => this._tick('после правки'), DEBOUNCE);
   },
 
   /** Свои списки в формате центра. Треки не с YouTube в сводку не идут. */
@@ -76,7 +100,8 @@ export const LMHub = {
   },
 
   async sync(reason) {
-    if (this.busy) return false;
+    // Правка во время сводки не теряется: эта закончится — пойдёт ещё одна
+    if (this.busy) { this._again = true; return false; }
     this.busy = true;
     try {
       const library = this.snapshot();
@@ -124,6 +149,7 @@ export const LMHub = {
       return true;
     } finally {
       this.busy = false;
+      if (this._again) { this._again = false; this.soon(); }
     }
   },
 
@@ -165,8 +191,7 @@ export const LMHub = {
 
     const names = lib.names ?? {};
     const sameLists = JSON.stringify(next) === JSON.stringify(current);
-    const sameNames = JSON.stringify(names) === JSON.stringify(LMSettings.getTrackNames());
-    if (sameLists && sameNames) return null;
+    if (sameLists && sameNames(names, LMSettings.getTrackNames())) return null;
 
     const pairs = lists => new Set(lists.flatMap(p => p.tracks.map(t => `${norm(p.name)}\u0001${t.id}`)));
     const was = pairs(current);

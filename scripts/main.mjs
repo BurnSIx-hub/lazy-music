@@ -22,7 +22,8 @@ Hooks.once('init', () => {
 Hooks.once('ready', () => {
   console.log('Lazy Music | ready');
   LMSocket.init({
-    onStateRequest: (userId) => LMApp._instance?.syncStateToPlayer(userId)
+    onStateRequest: (userId) => LMApp._instance?.syncStateToPlayer(userId),
+    isLeading: () => !!LMApp._instance?.track
   });
 
   // Одноразовая миграция: убираем API-ключ из world-настроек.
@@ -50,12 +51,10 @@ Hooks.once('ready', () => {
   // Следим за громкостью — несколько методов параллельно для надёжности
   _setupVolumeSync();
 
-  // A player joining during playback asks the GM for the current track,
-  // position, pause state, and master volume.
-  if (!game.user.isGM) {
-    setTimeout(() => LMSocket.requestState(), 1000);
-    setTimeout(() => LMSocket.requestState(), 5000);
-  }
+  // Подключившийся посреди трека спрашивает у Мастера, что играет, где и
+  // на какой громкости. Спрашивает и второй Мастер — он слушает, как игрок
+  setTimeout(() => LMSocket.requestState(), 1000);
+  setTimeout(() => LMSocket.requestState(), 5000);
 });
 
 // ── Читаем globalPlaylistVolume из Foundry ───────────────────────────────────

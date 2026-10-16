@@ -76,7 +76,7 @@
       <div class="lm-tracks" {{#if searchMode}}data-search="true"{{/if}} {{#if helperDown}}data-helper-down="true"{{/if}}>
         {{#if tracks.length}}
           {{#each tracks}}
-            <div class="lm-track {{#if this.cached}}lm-cached{{/if}} {{#if (eq this.id ../track.id)}}active{{/if}}" data-i="{{@index}}">
+            <div class="lm-track {{#if this.cached}}lm-cached{{/if}} {{#if (eq this.id ../track.id)}}active{{/if}}" data-i="{{@index}}" data-id="{{this.id}}">
               <div class="lm-track-num">{{@index}}</div>
               {{#if this.cached}}
                 <span class="lm-cache-dot" title="{{localize 'LAZYMUSIC.InCache'}}"></span>

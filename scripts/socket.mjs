@@ -6,24 +6,33 @@ const SOCKET = 'module.lazy-music';
 
 export class LMSocket {
   static _onStateRequest = null;
+  static _isLeading = null;
 
-  static init({ onStateRequest = null } = {}) {
+  /**
+   * @param onStateRequest — кто-то подключился посреди трека и спрашивает,
+   *   что играет (отвечает Мастер, у которого играет)
+   * @param isLeading — этот Мастер сам ведёт музыку
+   */
+  static init({ onStateRequest = null, isLeading = null } = {}) {
     this._onStateRequest = onStateRequest;
+    this._isLeading = isLeading;
 
     game.socket.on(SOCKET, (data) => {
       if (!data || typeof data !== 'object') return;
       const sender = game.users.get(data.senderId);
+      if (!sender || sender.id === game.user.id) return;
 
-      // Players may only ask the GM for the current playback state.
-      if (game.user.isGM) {
-        if (data.action === 'state-request' && sender && !sender.isGM) {
-          this._onStateRequest?.(data.senderId);
-        }
+      // Спросить, что играет, может любой; отвечает только Мастер
+      if (data.action === 'state-request') {
+        if (game.user.isGM) this._onStateRequest?.(data.senderId);
         return;
       }
 
-      // Playback commands are accepted only when they identify an existing GM.
-      if (!sender?.isGM) return;
+      // Команды — только от Мастера. Мастер, который сам ведёт музыку,
+      // чужих не слушает; второй Мастер (и «Помощник Мастера») слушает их,
+      // как игрок, — иначе он сидит без музыки
+      if (!sender.isGM) return;
+      if (game.user.isGM && this._isLeading?.()) return;
       if (data.targetId && data.targetId !== game.user.id) return;
 
       import('./player-receiver.mjs').then(({ PlayerReceiver }) => {
