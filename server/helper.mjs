@@ -117,6 +117,23 @@ async function _download(id) {
   if (have) return have;
 
   await Deno.mkdir(CACHE, { recursive: true });
+  // Сначала быстрым путём, потом обычным — см. FAST_CLIENT
+  try {
+    return await ytdlp(id, true);
+  } catch (e) {
+    log(`↪️ ${id}: быстрый путь не вышел, качаю обычным`);
+    return await ytdlp(id, false);
+  }
+}
+
+/**
+ * Клиент YouTube visionos — ему не нужна JS-задачка, которую yt-dlp иначе
+ * решает для клиента tv через Deno. Замерено 2026-10-17: ссылка за 2,6–2,9 с
+ * вместо 4,3, формат тот же (140). Не вышло — обычный путь.
+ */
+const FAST_CLIENT = 'youtube:player_client=visionos';
+
+async function ytdlp(id, fast) {
   const args = [
     '-f', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
     '--no-playlist', '--no-warnings', '-q',
@@ -129,6 +146,7 @@ async function _download(id) {
     '--retries', '3',
     '-o', `${CACHE}\\%(id)s.%(ext)s`,
   ];
+  if (fast) args.push('--extractor-args', FAST_CLIENT);
   const cookies = newestCookies();
   if (cookies) args.push('--cookies', cookies);
   args.push(`https://www.youtube.com/watch?v=${id}`);
