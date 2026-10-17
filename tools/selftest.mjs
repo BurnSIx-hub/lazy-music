@@ -120,6 +120,23 @@ const syncFromPc = (app, lists) => { save(lists); app._afterLibrarySync({ added:
   ok(app.track?.id === 'l26' && app.playing, 'длинный список + поиск: играет 27-й, а не тишина', app.track?.id);
 }
 
+// 1б. Перемешивание: следующий выбран заранее — его успевают скачать
+{
+  const app = await mkApp();
+  app.shuffle = true;
+  let ahead = 0, same = 0, notCurrent = 0;
+  for (let k = 0; k < 20; k++) {
+    await play(app, k % 5);
+    const want = app._shuffleNext;
+    if (Number.isInteger(want)) ahead++;
+    if (want !== app.trackIdx) notCurrent++;
+    await next(app);
+    if (app.trackIdx === want) same++;
+  }
+  ok(ahead === 20 && same === 20, 'при перемешивании играет заранее выбранный', `${ahead}/${same}`);
+  ok(notCurrent === 20, 'заранее выбранный — не тот, что играет');
+}
+
 // 2. Открыли другой плейлист
 {
   const app = await mkApp();

@@ -247,7 +247,13 @@ export class LMApp extends HandlebarsApp {
     on('#lm-prev',            'click', () => this._prev());
     on('#lm-next',            'click', () => this._next());
     on('#lm-stop',            'click', () => this._stop());
-    on('#lm-shuffle',         'click', () => { this.shuffle = !this.shuffle; root.querySelector('#lm-shuffle')?.classList.toggle('active', this.shuffle); });
+    on('#lm-shuffle',         'click', () => {
+      this.shuffle = !this.shuffle;
+      root.querySelector('#lm-shuffle')?.classList.toggle('active', this.shuffle);
+      // Следующий теперь другой — греем его
+      this._shuffleNext = null;
+      if (this.track && this.relayMode) this._prefetchNext(this.track.id);
+    });
     on('#lm-repeat',          'click', () => { this.repeat  = !this.repeat;  root.querySelector('#lm-repeat')?.classList.toggle('active', this.repeat); });
     // Громкость управляется ползунком 'Музыка' в панели Foundry
     on('#lm-search-input',    'keydown', e => { if (e.key === 'Enter') this._search(e.target.value); });
@@ -501,6 +507,7 @@ export class LMApp extends HandlebarsApp {
       this.trackIdx = (after ?? fresh.length) - 1;
     }
     this.queue = fresh;
+    this._shuffleNext = null; // номера сдвинулись
   }
 
   // ── Player synchronization ───────────────────────────────────────────────
@@ -568,6 +575,7 @@ export class LMApp extends HandlebarsApp {
 
     this.trackIdx  = i;
     this.track     = this.queue[i];
+    this._shuffleNext = null; // выберется заново, когда трек заиграет
     this.position  = 0;
     this.duration  = 0;
     this.playing   = true;
@@ -830,10 +838,23 @@ export class LMApp extends HandlebarsApp {
     this._prefetchNext(videoId, source);
   }
 
+  /**
+   * Следующий при перемешивании — выбирается заранее, а не в конце трека:
+   * иначе его не успеть скачать. Играющий не выбирается.
+   */
+  _pickShuffled() {
+    const n = this.queue.length;
+    if (n < 2) return 0;
+    let i;
+    do { i = Math.floor(Math.random() * n); } while (i === this.trackIdx);
+    return i;
+  }
+
   /** Греет кэш следующего трека, чтобы переход был мгновенным. */
   _prefetchNext(videoId, source = null) {
-    if (this.shuffle || this.queue.length < 2) return;
-    const next = this.queue[(this.trackIdx + 1) % this.queue.length];
+    if (this.queue.length < 2) return;
+    if (this.shuffle) this._shuffleNext = this._pickShuffled();
+    const next = this.queue[this.shuffle ? this._shuffleNext : (this.trackIdx + 1) % this.queue.length];
     if (!next || next.id === videoId || next.source !== 'youtube') return;
     if (LMCache.has(next.id)) return;               // уже на диске, качать нечего
     if (this._helperAlive === false) return;        // качать некому
@@ -960,7 +981,7 @@ export class LMApp extends HandlebarsApp {
   }
 
   _next() {
-    let i = this.shuffle ? Math.floor(Math.random() * this.queue.length) : this.trackIdx + 1;
+    let i = this.shuffle ? (this._shuffleNext ?? this._pickShuffled()) : this.trackIdx + 1;
     if (!this.shuffle && i >= this.queue.length) { if (this.repeat) i = 0; else return this._stop(); }
     this._playIdx(i);
   }

@@ -120,6 +120,13 @@ async function _download(id) {
   const args = [
     '-f', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
     '--no-playlist', '--no-warnings', '-q',
+    // Только IPv4. Замерено 2026-10-17: по IPv6 серверы звука YouTube рвут
+    // соединение ещё на рукопожатии, а yt-dlp честно повторяет десять раз —
+    // полторы минуты на трек и «скачать не удалось». По IPv4 мегабайт за
+    // полсекунды. Приложение на ПК и телефон ходят так же
+    '--force-ipv4',
+    // Если связь всё же рвётся — не держать Мастера полторы минуты
+    '--retries', '3',
     '-o', `${CACHE}\\%(id)s.%(ext)s`,
   ];
   const cookies = newestCookies();
