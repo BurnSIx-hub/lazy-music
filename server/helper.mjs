@@ -382,6 +382,19 @@ function moveOldCache() {
   if (moved) log(`📦 Кэш переехал из папки модуля, файлов: ${moved}`);
 }
 
+/**
+ * Где модуль — для приложения Lazy Music на ПК: оно читает наш кэш. Данные
+ * Foundry бывают где угодно (D:\Foundry\<мир>\Data), а в настройки Foundry,
+ * где лежит ключ лицензии, приложение не заглядывает.
+ */
+function tellWhere() {
+  try {
+    const dir = `${Deno.env.get('LOCALAPPDATA')}\\lazy-music`;
+    Deno.mkdirSync(dir, { recursive: true });
+    Deno.writeTextFileSync(`${dir}\\foundry.json`, JSON.stringify({ module: Deno.realPathSync(MODULE) }));
+  } catch {}
+}
+
 function samePath(a, b) {
   try { return Deno.realPathSync(a).toLowerCase() === Deno.realPathSync(b).toLowerCase(); }
   catch { return false; }
@@ -467,5 +480,6 @@ try {
 
 if (!Deno.args.includes('--stay')) startWatchdog();
 moveOldCache();
+tellWhere();
 ready = syncYtdlp().catch(e => log(`⚠️ yt-dlp из модуля не взят: ${e.message ?? e}`));
 trimCache();
