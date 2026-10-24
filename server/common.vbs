@@ -23,9 +23,52 @@ Function FindFoundry()
   For Each c In FoundryCandidates()
     If f.FileExists(c) Then
       FindFoundry = c
-      Exit For
+      Exit Function
     End If
   Next
+  ' Not in the usual places: ask Foundry's own shortcut. A path added to the
+  ' list above is lost with every module update, the shortcut is not
+  FindFoundry = FoundryFromShortcuts()
+End Function
+
+' Foundry's installer puts "Foundry Virtual Tabletop" shortcuts on the Desktop
+' and in the Start menu - read where they point.
+Function FoundryFromShortcuts()
+  Dim f, s, place, dir, folder, lnk, target
+  Set f = CreateObject("Scripting.FileSystemObject")
+  Set s = CreateObject("WScript.Shell")
+  FoundryFromShortcuts = ""
+  On Error Resume Next
+  For Each place In Array("Desktop", "AllUsersDesktop", "Programs", "AllUsersPrograms")
+    dir = s.SpecialFolders(place)
+    If dir <> "" And f.FolderExists(dir) Then
+      For Each lnk In Array(dir & "\Foundry Virtual Tabletop.lnk", dir & "\Foundry VTT.lnk")
+        target = ShortcutTarget(lnk)
+        If target <> "" Then
+          FoundryFromShortcuts = target
+          Exit Function
+        End If
+      Next
+      For Each folder In f.GetFolder(dir).SubFolders
+        target = ShortcutTarget(folder.Path & "\Foundry Virtual Tabletop.lnk")
+        If target <> "" Then
+          FoundryFromShortcuts = target
+          Exit Function
+        End If
+      Next
+    End If
+  Next
+End Function
+
+' The shortcut's target if it is Foundry itself and still exists, otherwise "".
+Function ShortcutTarget(lnk)
+  Dim f, s, t
+  Set f = CreateObject("Scripting.FileSystemObject")
+  Set s = CreateObject("WScript.Shell")
+  ShortcutTarget = ""
+  If Not f.FileExists(lnk) Then Exit Function
+  t = s.CreateShortcut(lnk).TargetPath
+  If LCase(f.GetFileName(t)) = "foundry virtual tabletop.exe" And f.FileExists(t) Then ShortcutTarget = t
 End Function
 
 Function ServerDir()
@@ -70,6 +113,46 @@ Function CheckLayout()
 
   CheckLayout = True
 End Function
+
+' Starts the helper from a copy in %LOCALAPPDATA%\lazy-music\helper, not from
+' the module folder. Foundry deletes the whole module folder when it updates the
+' module, and a deno.exe running from there kept it locked: the update stopped
+' halfway with EBUSY and left the module half-deleted. The copy is refreshed on
+' every start; deno.exe is skipped while a running helper holds it, and
+' yt-dlp.exe is only copied once - after that the helper itself keeps the newer
+' of the two (it may have been updated by the button in the module window).
+' If the copy cannot be made, the helper starts from the module folder as before.
+Sub StartHelper()
+  Dim f, s, src, dst, exe
+  Set f = CreateObject("Scripting.FileSystemObject")
+  Set s = CreateObject("WScript.Shell")
+  src = ServerDir()
+  dst = s.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\lazy-music\helper"
+
+  On Error Resume Next
+  If Not f.FolderExists(f.GetParentFolderName(dst)) Then f.CreateFolder f.GetParentFolderName(dst)
+  If Not f.FolderExists(dst) Then f.CreateFolder dst
+  If Not f.FolderExists(dst & "\bin") Then f.CreateFolder dst & "\bin"
+  If Not f.FileExists(dst & "\bin\deno.exe") Then
+    f.CopyFile src & "\bin\deno.exe", dst & "\bin\deno.exe", True
+  ElseIf f.GetFile(dst & "\bin\deno.exe").Size <> f.GetFile(src & "\bin\deno.exe").Size Then
+    f.CopyFile src & "\bin\deno.exe", dst & "\bin\deno.exe", True
+  End If
+  If Not f.FileExists(dst & "\bin\yt-dlp.exe") Then f.CopyFile src & "\bin\yt-dlp.exe", dst & "\bin\yt-dlp.exe", True
+  f.CopyFile src & "\helper.mjs", dst & "\helper.mjs", True
+  Err.Clear
+  On Error GoTo 0
+
+  ' The working folder is held open by the process too - keep it out of the module
+  If f.FileExists(dst & "\bin\deno.exe") And f.FileExists(dst & "\bin\yt-dlp.exe") And f.FileExists(dst & "\helper.mjs") Then
+    exe = dst
+    s.CurrentDirectory = dst
+  Else
+    exe = src
+    s.CurrentDirectory = s.ExpandEnvironmentStrings("%LOCALAPPDATA%")
+  End If
+  s.Run """" & exe & "\bin\deno.exe"" run -A """ & exe & "\helper.mjs"" --module """ & ModuleDir() & """", 0, False
+End Sub
 
 ' deno.exe and yt-dlp.exe are not stored in git, so a source ZIP has no bin\
 ' folder and the helper cannot start. Offer to download them instead of

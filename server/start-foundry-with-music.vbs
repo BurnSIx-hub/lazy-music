@@ -20,7 +20,7 @@ ExecuteGlobal fso.OpenTextFile(here & "\common.vbs", 1).ReadAll
 If Not CheckLayout() Then WScript.Quit
 If Not EnsureBinaries() Then WScript.Quit
 
-sh.Run """" & here & "\bin\deno.exe"" run -A """ & here & "\helper.mjs""", 0, False
+StartHelper
 
 foundryExe = FindFoundry()
 If foundryExe = "" Then
@@ -30,5 +30,8 @@ If foundryExe = "" Then
          "The music helper is already running, so you can also just start" & vbCrLf & _
          "Foundry the usual way.", 48, "Lazy Music"
 Else
+  ' Foundry inherits our working folder - the module's server\ when started from
+  ' the shortcut - and would hold it, so module updates failed with EBUSY
+  sh.CurrentDirectory = fso.GetParentFolderName(foundryExe)
   sh.Run """" & foundryExe & """", 1, False
 End If

@@ -1,10 +1,10 @@
 /**
  * Lazy Music — локальный помощник GM.
  *
- * Качает аудиодорожки YouTube (yt-dlp) в папку cache/ модуля. Сами файлы
- * игрокам раздаёт Foundry — по обычному адресу modules/lazy-music/cache/…,
- * поэтому игрокам не нужны ни порт, ни настройки: они качают с того же
- * адреса, по которому уже подключены к Foundry.
+ * Качает аудиодорожки YouTube (yt-dlp) в Data/lazy-music-cache. Сами файлы
+ * игрокам раздаёт Foundry — по обычному адресу lazy-music-cache/…, поэтому
+ * игрокам не нужны ни порт, ни настройки: они качают с того же адреса, по
+ * которому уже подключены к Foundry.
  *
  * Слушает только 127.0.0.1:8766 — снаружи помощник недоступен, к нему
  * обращается лишь модуль на клиенте GM.
@@ -12,12 +12,19 @@
  * Запускается вместе с Foundry (ярлык «Foundry с музыкой») и сам
  * завершается через ~2 минуты после закрытия Foundry.
  *
- * Запуск вручную:   bin\deno.exe run -A helper.mjs
+ * Работает из копии в %LOCALAPPDATA%\lazy-music\helper, а не из папки модуля
+ * (с 2.12.0): обновляя модуль, Foundry удаляет его папку целиком, и
+ * запущенный оттуда deno.exe её держал — обновление обрывалось на середине,
+ * и модуль оставался полуудалённым. По той же причине кэш лежит вне модуля:
+ * иначе каждое обновление стирало скачанное. Копию делает ярлык (common.vbs).
+ *
+ * Запуск вручную:   bin\deno.exe run -A helper.mjs [--module <папка модуля>]
+ * Без --module папкой модуля считается родительская (запуск прямо из server/).
  * Флаг --stay — не следить за процессом Foundry (для отладки).
  *
  * API:
  *   GET /api/ping                  → { ok: true }
- *   GET /api/yt/ensure?id=<vid>    → { ready: true, url: "modules/lazy-music/cache/<vid>.m4a" }
+ *   GET /api/yt/ensure?id=<vid>    → { ready: true, url: "lazy-music-cache/<vid>.m4a" }
  *   GET /api/yt/prefetch?id=<vid>  → { started: true }   (скачивание в фоне)
  *   GET /api/cache/status          → { files: n, bytes: n }
  *   POST /api/cache/clear          → { cleared: n, freed: bytes }
@@ -27,11 +34,22 @@
  */
 
 const PORT  = 8766;
-const HERE  = import.meta.dirname;            // …\modules\lazy-music\server
+const HERE  = import.meta.dirname;            // %LOCALAPPDATA%\lazy-music\helper или …\server
 const BIN   = `${HERE}\\bin`;
-const CACHE = `${HERE}\\..\\cache`;
 const LOG   = `${HERE}\\helper.log`;
 const YTDLP = `${BIN}\\yt-dlp.exe`;
+
+function argValue(name) {
+  const i = Deno.args.indexOf(name);
+  return i >= 0 ? Deno.args[i + 1] ?? null : null;
+}
+
+const MODULE    = argValue('--module') ?? `${HERE}\\..`;   // …\Data\modules\lazy-music
+const DATA      = `${MODULE}\\..\\..`;                     // …\Data — её раздаёт Foundry
+const CACHE_URL = 'lazy-music-cache';
+const CACHE     = `${DATA}\\${CACHE_URL}`;
+/** Кэш до 2.12.0 — внутри модуля; при старте переезжает в CACHE. */
+const OLD_CACHE = `${MODULE}\\cache`;
 
 const CACHE_LIMIT_BYTES = 1.5 * 1024 ** 3;    // максимум кэша; старое удаляется
 const AUDIO_EXT = new Set(['.m4a', '.webm', '.opus', '.mp3', '.ogg', '.aac']);
@@ -102,6 +120,8 @@ function newestCookies() {
 // ── Скачивание (один трек качается один раз, даже при параллельных запросах) ─
 
 const inFlight = new Map();
+/** Сверка yt-dlp при старте — до неё не качаем (см. syncYtdlp). */
+let ready = Promise.resolve();
 
 function download(id) {
   let p = inFlight.get(id);
@@ -116,6 +136,7 @@ async function _download(id) {
   const have = cachedFile(id);
   if (have) return have;
 
+  await ready;
   await Deno.mkdir(CACHE, { recursive: true });
   // Сначала быстрым путём, потом обычным — см. FAST_CLIENT
   try {
@@ -179,8 +200,8 @@ async function ytdlp(id, fast) {
 // ── yt-dlp: версия и обновление ──────────────────────────────────────────────
 
 /** Версия бинарника, вида 2026.08.19. */
-async function ytdlpVersion() {
-  const out = await new Deno.Command(YTDLP, {
+async function ytdlpVersion(exe = YTDLP) {
+  const out = await new Deno.Command(exe, {
     args: ['--version'], stdout: 'piped', stderr: 'piped',
   }).output();
   if (!out.success) throw new Error('yt-dlp не отвечает');
@@ -250,7 +271,7 @@ async function handler(req) {
     if (!ID_RE.test(id)) return json({ ready: false, error: 'Некорректный ID видео' }, 400, origin);
     try {
       const f = await download(id);
-      return json({ ready: true, url: `modules/lazy-music/cache/${f}` }, 200, origin);
+      return json({ ready: true, url: `${CACHE_URL}/${f}` }, 200, origin);
     } catch (e) {
       return json({ ready: false, error: String(e.message ?? e) }, 502, origin);
     }
@@ -322,6 +343,7 @@ async function handler(req) {
   // перезапускать не надо — бинарник поднимается заново на каждое скачивание.
   if (u.pathname === '/api/ytdlp/update') {
     if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405, origin);
+    await ready;
     const before = await ytdlpVersion().catch(() => null);
     log('⬆️ Обновляю yt-dlp…');
     const out = await new Deno.Command(YTDLP, {
@@ -342,6 +364,64 @@ async function handler(req) {
 
 
   return json({ error: 'not found' }, 404, origin);
+}
+
+// ── Переезд из папки модуля ──────────────────────────────────────────────────
+
+/** Кэш из папки модуля (до 2.12.0) — в Data/lazy-music-cache. */
+function moveOldCache() {
+  let moved = 0;
+  try {
+    Deno.mkdirSync(CACHE, { recursive: true });
+    for (const e of [...Deno.readDirSync(OLD_CACHE)]) {
+      if (!e.isFile) continue;
+      try { Deno.renameSync(`${OLD_CACHE}\\${e.name}`, `${CACHE}\\${e.name}`); moved++; } catch {}
+    }
+    Deno.removeSync(OLD_CACHE); // удалится, только если опустела
+  } catch {}
+  if (moved) log(`📦 Кэш переехал из папки модуля, файлов: ${moved}`);
+}
+
+function samePath(a, b) {
+  try { return Deno.realPathSync(a).toLowerCase() === Deno.realPathSync(b).toLowerCase(); }
+  catch { return false; }
+}
+
+/**
+ * yt-dlp в модуле новее нашей копии (вышла новая версия модуля) — берём его.
+ * Наша могла обновиться кнопкой (-U) и оказаться свежее модульной — тогда
+ * остаётся своя. Версии — даты (2026.08.19), их можно сравнивать строкой.
+ *
+ * Модульный файл не запускаем: запущенный, он держал бы папку модуля, как
+ * раньше deno.exe. Версию спрашиваем у его копии, и только когда в модуле
+ * лежит не тот файл, что в прошлый раз (метка — размер и время).
+ */
+async function syncYtdlp() {
+  const theirs = `${MODULE}\\server\\bin\\yt-dlp.exe`;
+  let st;
+  try { st = Deno.statSync(theirs); } catch { return; } // в модуле нет — сверять не с чем
+  if (samePath(theirs, YTDLP)) return;                  // запущены прямо из модуля
+  const MARK  = `${BIN}\\yt-dlp.module`;
+  const mark  = `${st.size}:${st.mtime?.getTime() ?? 0}`;
+  let seen = '';
+  try { seen = Deno.readTextFileSync(MARK); } catch {}
+  if (seen === mark) return;
+  const probe = `${BIN}\\yt-dlp.probe.exe`;
+  Deno.mkdirSync(BIN, { recursive: true });
+  Deno.copyFileSync(theirs, probe);
+  try {
+    const [mine, fresh] = await Promise.all([
+      ytdlpVersion().catch(() => ''),
+      ytdlpVersion(probe).catch(() => ''),
+    ]);
+    if (fresh && fresh > mine) {
+      Deno.copyFileSync(probe, YTDLP);
+      log(`⬆️ yt-dlp из модуля: ${mine || 'нет'} → ${fresh}`);
+    }
+  } finally {
+    try { Deno.removeSync(probe); } catch {}
+  }
+  Deno.writeTextFileSync(MARK, mark);
 }
 
 // ── Слежение за Foundry: закрыли Foundry → помощник выходит сам ──────────────
@@ -386,4 +466,6 @@ try {
 }
 
 if (!Deno.args.includes('--stay')) startWatchdog();
+moveOldCache();
+ready = syncYtdlp().catch(e => log(`⚠️ yt-dlp из модуля не взят: ${e.message ?? e}`));
 trimCache();

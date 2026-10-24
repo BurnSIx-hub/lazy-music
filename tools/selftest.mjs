@@ -36,6 +36,8 @@ globalThis.game = {
 };
 let lastAudio = null;
 const cacheFiles = [];
+// Кэш до 2.12.0 — в папке модуля; помощник переносит его, но модуль читает и старое место
+const oldCacheFiles = [];
 class FakeAudio {
   constructor() { this.src = ''; this.currentTime = 0; this.duration = 200; this.volume = 1; this.paused = true; this.l = {}; lastAudio = this; }
   play() { this.paused = false; return Promise.resolve(); }
@@ -61,7 +63,11 @@ class AppV2 {
   get rendered() { return true; }
 }
 globalThis.foundry = {
-  applications: { api: { ApplicationV2: AppV2, HandlebarsApplicationMixin: B => class extends B {} }, apps: { FilePicker: { browse: async () => ({ files: cacheFiles.map(id => `modules/lazy-music/cache/${id}.m4a`) }) } } },
+  applications: { api: { ApplicationV2: AppV2, HandlebarsApplicationMixin: B => class extends B {} }, apps: { FilePicker: { browse: async (src, dir) => {
+    if (dir === 'lazy-music-cache') return { files: cacheFiles.map(id => `${dir}/${id}.m4a`) };
+    if (!oldCacheFiles.length) throw new Error('нет папки');
+    return { files: oldCacheFiles.map(id => `${dir}/${id}.m4a`) };
+  } } } },
   utils: { mergeObject: Object.assign, escapeHTML: s => s },
 };
 let fetchImpl = async () => { throw new Error('нет сети'); };
@@ -82,7 +88,13 @@ const T = (id) => ({ id, title: id.toUpperCase(), artist: '', albumArt: '', sour
 const liked = ['a1', 'a2', 'a3', 'a4', 'a5'];
 const battle = ['b1', 'b2', 'b3', 'b4'];
 cacheFiles.push(...liked, ...battle, 's1', 's2', 's3', 'n0', 'n9', ...Array.from({ length: 30 }, (_, i) => `l${i}`));
+oldCacheFiles.push('o1', 'a1');
 await LMCache.refresh();
+ok(LMCache.get('o1') === 'modules/lazy-music/cache/o1.m4a', 'кэш: трек со старого места найден');
+ok(LMCache.get('a1') === 'lazy-music-cache/a1.m4a', 'кэш: новое место важнее старого');
+oldCacheFiles.length = 0;
+await LMCache.refresh();
+ok(!LMCache.has('o1') && LMCache.has('a1'), 'кэш: старого места нет — новое читается');
 localStorage.setItem('lazy-music-sync-to-players', 'true');
 
 const save = lists => LMSettings.quietly(() => LMSettings.saveCustomPlaylists(lists));

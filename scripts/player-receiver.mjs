@@ -103,7 +103,7 @@ export class PlayerReceiver {
     mode = 'stream';
     ytPlayer?.stopVideo?.();   // глушим YouTube, если играл
 
-    // Путь может быть относительным (modules/lazy-music/cache/…) — тогда каждый
+    // Путь может быть относительным (lazy-music-cache/…) — тогда каждый
     // клиент качает файл со своего же адреса Foundry. Приводим к абсолютному.
     url = new URL(url, window.location.href).href;
 

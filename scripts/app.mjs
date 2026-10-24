@@ -589,10 +589,10 @@ export class LMApp extends HandlebarsApp {
   // ── Откуда берётся звук ───────────────────────────────────────────────────
   //
   // По порядку:
-  //  0. Файл уже лежит в modules/lazy-music/cache/ — играем прямо оттуда.
+  //  0. Файл уже лежит в Data/lazy-music-cache/ — играем прямо оттуда.
   //     Помощник для этого не нужен вовсе: папку раздаёт сам Foundry, а её
   //     содержимое модуль видит через FilePicker.browse (см. cache.mjs).
-  //     Сюда же попадают файлы, положенные в cache/ вручную.
+  //     Сюда же попадают файлы, положенные в папку вручную.
   //  1. Встроенный помощник (server/helper.mjs) на машине GM — скачивает
   //     недостающее в ту же папку и возвращает ОТНОСИТЕЛЬНЫЙ путь, который
   //     каждый клиент открывает со своего же адреса Foundry.
@@ -611,7 +611,7 @@ export class LMApp extends HandlebarsApp {
     const h = LMApp.HELPER_URL;
     const sources = [{
       name:        'помощник',
-      local:       true, // качает в нашу же папку cache/ — результат можно запомнить
+      local:       true, // качает в нашу же папку кэша — результат можно запомнить
       ping:        () => `${h}/api/ping`,
       ensure:      id => `${h}/api/yt/ensure?id=${encodeURIComponent(id)}`,
       prefetch:    id => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
