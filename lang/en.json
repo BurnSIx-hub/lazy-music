@@ -28,6 +28,7 @@
   "LAZYMUSIC.ClearCacheTooltip": "Clear downloaded music cache on disk",
   "LAZYMUSIC.OpenCacheTooltip": "Open downloaded tracks folder",
   "LAZYMUSIC.UpdateYtdlpTooltip": "Update yt-dlp — fixes \"track download failed\"",
+  "LAZYMUSIC.ExportLogTooltip": "Download the session log: who got the music and how",
   "LAZYMUSIC.UpdateTitle": "Update yt-dlp",
   "LAZYMUSIC.UpdateConfirm": "Installed yt-dlp is {version}, released {days} days ago. Update? About 18 MB will be downloaded; playback will not stop.",
   "LAZYMUSIC.Updating": "Lazy Music: updating yt-dlp, this may take up to a minute...",

@@ -28,6 +28,7 @@
   "LAZYMUSIC.ClearCacheTooltip": "Очистить кэш скачанной музыки на диске",
   "LAZYMUSIC.OpenCacheTooltip": "Открыть папку скачанных треков",
   "LAZYMUSIC.UpdateYtdlpTooltip": "Обновить yt-dlp — лечит «скачать трек не удалось»",
+  "LAZYMUSIC.ExportLogTooltip": "Скачать журнал сессии: кому и как доходила музыка",
   "LAZYMUSIC.UpdateTitle": "Обновление yt-dlp",
   "LAZYMUSIC.UpdateConfirm": "Сейчас стоит yt-dlp {version}, выпущен {days} дн. назад. Обновить? Скачается около 18 МБ, музыка не прервётся.",
   "LAZYMUSIC.Updating": "Lazy Music: обновляю yt-dlp, это займёт до минуты…",

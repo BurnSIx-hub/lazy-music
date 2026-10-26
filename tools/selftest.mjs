@@ -19,16 +19,19 @@ globalThis.Hooks = {
   callAll: (n, ...a) => (hooks[n] ?? []).forEach(f => f(...a)),
 };
 const users = new Map([
-  ['gm1', { id: 'gm1', isGM: true }],
-  ['agm', { id: 'agm', isGM: true }],
-  ['p1', { id: 'p1', isGM: false }],
-  ['p2', { id: 'p2', isGM: false }],
+  ['gm1', { id: 'gm1', name: 'Мастер', isGM: true, active: true }],
+  ['agm', { id: 'agm', name: 'Помощник', isGM: true }],
+  ['p1', { id: 'p1', name: 'Вася', isGM: false, active: true }],
+  ['p2', { id: 'p2', name: 'Петя', isGM: false }],
 ]);
 const emitted = [];
 const socketHandlers = [];
 globalThis.game = {
   user: users.get('gm1'),
-  users: { get: id => users.get(id) },
+  users: { get: id => users.get(id), contents: [...users.values()] },
+  modules: { get: () => ({ version: 'тест' }) },
+  version: '13',
+  system: { id: 'dnd5e' },
   world: { title: 'Тест' },
   i18n: { localize: k => k, format: (k, d) => `${k} ${JSON.stringify(d)}` },
   settings: { get: (ns, k) => (k === 'globalPlaylistVolume' ? 1 : null), set: async () => {}, register: () => {} },
@@ -44,6 +47,7 @@ class FakeAudio {
   pause() { this.paused = true; }
   load() {}
   removeAttribute(a) { if (a === 'src') this.src = ''; }
+  getAttribute(a) { return a === 'src' ? this.src || null : null; }
   addEventListener(e, f) { (this.l[e] ??= []).push(f); }
 }
 globalThis.Audio = FakeAudio;
@@ -55,6 +59,8 @@ globalThis.document = {
   createElement: () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {} }),
   body: { appendChild() {} }, head: { appendChild() {} },
   querySelectorAll: () => [],
+  addEventListener() {},
+  hidden: false,
 };
 class AppV2 {
   constructor() { this.renders = 0; }
@@ -235,6 +241,54 @@ const syncFromPc = (app, lists) => { save(lists); app._afterLibrarySync({ added:
   ok(app.track.id === 'a2', '«назад» в начале трека — прошлый трек', app.track.id);
 }
 
+// 8½. Журнал: игрок сообщает Мастеру, что у него с музыкой
+{
+  const { LMLog } = await import(ROOT + 'log.mjs');
+  const fire = (a, e) => (a.l[e] ?? []).forEach(f => f());
+  const reports = () => emitted.filter(d => d.action === 'log').map(d => d.payload);
+  game.user = users.get('p1');
+  emitted.length = 0;
+  PlayerReceiver.play({ videoId: 'x1', streamUrl: 'lazy-music-cache/x1.m4a', position: 12, title: 'X1' });
+  const audio = lastAudio;
+  fire(audio, 'loadedmetadata');
+  await sleep(5);
+  fire(audio, 'playing');
+  const got = reports().find(r => r.k === 'got'), playing = reports().find(r => r.k === 'playing');
+  ok(got?.a === 'play' && got.id === 'x1' && got.mode === 'stream' && got.pos === 12, 'игрок: «получил» с треком, способом и позицией');
+  ok(playing?.id === 'x1' && typeof playing.ms === 'number' && playing.vol === 1, 'игрок: «заиграло» с задержкой и громкостью', JSON.stringify(playing));
+  fire(audio, 'playing');
+  ok(reports().filter(r => r.k === 'playing').length === 1, 'игрок: «заиграло» — раз на команду');
+  // Автоплей заблокирован
+  emitted.length = 0;
+  const realPlay = FakeAudio.prototype.play;
+  FakeAudio.prototype.play = function () { return Promise.reject(Object.assign(new Error('нет жеста'), { name: 'NotAllowedError' })); };
+  PlayerReceiver.play({ videoId: 'x2', streamUrl: 'lazy-music-cache/x2.m4a' });
+  fire(audio, 'loadedmetadata');
+  await sleep(5);
+  FakeAudio.prototype.play = realPlay;
+  ok(reports().some(r => r.k === 'blocked' && r.err === 'NotAllowedError'), 'игрок: автоплей заблокирован — в журнал');
+  ok(PlayerReceiver.status()?.id === 'x2', 'игрок: «где я в треке» знает трек');
+  // Мастер: принял отчёт игрока, пишет своё, выгружает текстом
+  game.user = users.get('gm1');
+  LMLog._entries = [];
+  LMLog.receive(users.get('p1'), { k: 'playing', id: 'x1', ms: 640, vol: 0.8, huge: 'я'.repeat(1000) });
+  LMLog.add('track', { id: 'x1', title: 'X1', from: 'cache', sync: true });
+  const e0 = LMLog._list()[0];
+  ok(e0.u === 'Вася' && !e0.gm && e0.k === 'playing' && e0.huge.length === 300, 'Мастер: отчёт игрока в журнале, лишнее урезано');
+  game.user = users.get('p1');
+  LMLog.add('track', { id: 'чужое' });
+  ok(LMLog._list().length === 2, 'игрок журнал не ведёт');
+  game.user = users.get('gm1');
+  const text = LMLog.text();
+  ok(/Lazy Music тест · Foundry 13/.test(text) && /«Вася» \(игрок, в сети\)/.test(text), 'выгрузка: шапка с версиями и участниками');
+  ok(/ Вася +playing +\{"id":"x1","ms":640/.test(text) && /★Мастер +track/.test(text), 'выгрузка: строки с именами', text.split('\n').slice(-3).join(' | '));
+  LMLog._entries = [{ t: Date.now() - 4 * 24 * 3600e3, u: 'старое', k: 'x' }];
+  LMLog.add('x');
+  ok(LMLog._list().length === 1 && LMLog._list()[0].u === 'Мастер', 'записи старше трёх суток уходят');
+  LMLog._entries = [];
+  emitted.length = 0;
+}
+
 // 9. Сокет: второй Мастер слушает, ведущий — нет
 {
   const got = [];
@@ -311,6 +365,25 @@ const syncFromPc = (app, lists) => { save(lists); app._afterLibrarySync({ added:
   release?.();
   await sleep(50);
   clearTimeout(LMHub._timer); clearTimeout(LMHub._soon);
+}
+
+// 11. Журнал через сокет: отчёт игрока доходит до Мастера, рассылка Мастера пишется
+{
+  const { LMLog } = await import(ROOT + 'log.mjs');
+  const deliver = async data => { for (const h of socketHandlers) h(data); await sleep(30); };
+  game.user = users.get('gm1');
+  LMLog._entries = [];
+  await deliver({ action: 'log', payload: { k: 'error', id: 'x1', mode: 'stream', code: 4 }, senderId: 'p1' });
+  ok(LMLog._list().some(e => e.u === 'Вася' && e.k === 'error' && e.code === 4), 'сокет: отчёт игрока — в журнал Мастера');
+  game.user = users.get('p1');
+  await deliver({ action: 'log', payload: { k: 'error' }, senderId: 'p2' });
+  game.user = users.get('gm1');
+  ok(LMLog._list().length === 1, 'сокет: игрок чужие отчёты не пишет');
+  LMSocket.emit('play', { videoId: 'x1', streamUrl: 'lazy-music-cache/x1.m4a', position: 3.4 });
+  LMSocket.emit('gmvol', { vol: 0.5 });
+  const sends = LMLog._list().filter(e => e.k === 'send');
+  ok(sends.length === 1 && sends[0].a === 'play' && sends[0].to === 'всем' && sends[0].mode === 'stream' && sends[0].pos === 3, 'рассылка Мастера — в журнал, громкость — нет', JSON.stringify(sends));
+  LMLog._entries = [];
 }
 
 console.log(`\nитого: ${pass} ок, ${fail} ошибок`);

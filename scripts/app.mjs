@@ -9,6 +9,7 @@ import { LMMini }       from './mini-player.mjs';
 import { LMCache }      from './cache.mjs';
 import { LMPhone }      from './phone.mjs';
 import { PlayerReceiver } from './player-receiver.mjs';
+import { LMLog }        from './log.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -267,6 +268,7 @@ export class LMApp extends HandlebarsApp {
     on('#lm-open-cache',      'click', () => this._openCacheFolder());
     on('#lm-clear-cache',     'click', () => this._clearCache());
     on('#lm-update-ytdlp',    'click', () => this._updateYtdlp());
+    on('#lm-export-log',      'click', () => LMLog.download());
     on('#lm-gm-vol-slider',   'input',  e => this._setGMVolume(parseFloat(e.target.value)));
 
     // Progress bar drag
@@ -531,6 +533,29 @@ export class LMApp extends HandlebarsApp {
     return { track, playing: this.playing };
   }
 
+  /** Что играет у ведущего Мастера — для журнала раз в минуту (log.mjs). */
+  logState() {
+    if (!this.track) return null;
+    const r2 = (x) => Math.round(x * 100) / 100;
+    return {
+      id: this.track.id,
+      mode: this.relayMode ? 'stream' : 'yt',
+      pos: Math.round(this._readPosition()),
+      paused: !this.playing,
+      vol: r2(Math.min(1, this._getFoundryVol() * this.gmVolume)),
+      gv: r2(this.gmVolume),
+      sync: this._syncEnabled(),
+    };
+  }
+
+  /** Какой трек и откуда взят — в журнал. */
+  _logTrack(videoId, from, extra = {}) {
+    LMLog.add('track', {
+      id: videoId, title: this.track?.displayTitle || this.track?.title,
+      from, sync: this._syncEnabled(), ...extra,
+    });
+  }
+
   _emitState(targetId = null) {
     LMSocket.emit('state', {
       gmVolume: this.gmVolume,
@@ -751,9 +776,11 @@ export class LMApp extends HandlebarsApp {
     // 0. Уже на диске — играем немедленно, никого не спрашивая
     const local = LMCache.get(videoId);
     if (local) {
+      this._logTrack(videoId, 'cache', { url: local });
       this._startFromFile(videoId, local);
       return;
     }
+    const asked = performance.now();
 
     // 1. Нет — просим ретранслятор скачать. Если дольше 1.5 сек, предупреждаем
     const notify = setTimeout(() =>
@@ -774,6 +801,7 @@ export class LMApp extends HandlebarsApp {
       } catch (e) {
         failure = e?.message ?? String(e);
         console.warn(`Lazy Music | ретранслятор «${s.name}»:`, failure);
+        LMLog.add('relay', { id: videoId, src: s.name, answered, err: failure });
       }
     }
     clearTimeout(notify);
@@ -784,6 +812,7 @@ export class LMApp extends HandlebarsApp {
     // 2. Скачать не вышло — играем по-старому через YouTube. Если помощника
     //    вовсе нет, в окне появляется подсказка, как включить кэширование
     if (!url) {
+      this._logTrack(videoId, 'youtube', { why: answered ? 'не скачался' : 'помощник не отвечает' });
       if (answered) {
         ui.notifications.warn(LF('CacheFailed', { error: failure ?? '' }));
       } else if (!this._relayWarned) {
@@ -814,6 +843,7 @@ export class LMApp extends HandlebarsApp {
       LMCache.remember(videoId, url);
       this._markCached(videoId);
     }
+    this._logTrack(videoId, source.local ? 'helper' : 'server', { url, ms: Math.round(performance.now() - asked) });
     this._startFromFile(videoId, url, source);
   }
 
@@ -826,7 +856,10 @@ export class LMApp extends HandlebarsApp {
     const audio = getGMAudio();
     audio.src = url;
     audio.volume = Math.min(1, this._getFoundryVol() * this.gmVolume);
-    audio.play().catch(e => console.warn('Lazy Music | GM autoplay blocked:', e?.message));
+    audio.play().catch(e => {
+      console.warn('Lazy Music | GM autoplay blocked:', e?.message);
+      if (e?.name !== 'AbortError') LMLog.add('blocked', { id: videoId, mode: 'stream', err: e?.name });
+    });
 
     if (this._syncEnabled()) {
       LMSocket.emit('play', {
@@ -914,6 +947,8 @@ export class LMApp extends HandlebarsApp {
   _onAudioError() {
     if (!this.relayMode || !this.track) return;
     if (this._errorHandling) return;
+    const err = getGMAudio().error;
+    LMLog.add('error', { id: this.track.id, mode: 'stream', code: err?.code, msg: err?.message, src: this._relayUrl });
 
     // Файл из кэша не открылся — значит его удалили с диска мимо нас
     // (почистили папку руками). Забываем запись и один раз качаем заново.
@@ -1062,6 +1097,7 @@ export class LMApp extends HandlebarsApp {
     if (this.relayMode) return; // трек идёт через сервер — ошибки YT не интересны
     // Защита от одновременных вызовов
     if (this._errorHandling) return;
+    LMLog.add('error', { id: this.track?.id, mode: 'yt', code: e.data });
     this._errorHandling = true;
 
     const name = this.track?.displayTitle || this.track?.title || 'Unknown';

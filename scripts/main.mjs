@@ -8,6 +8,7 @@ import { LMSettings }     from './settings.mjs';
 import { PlayerReceiver } from './player-receiver.mjs';
 import { LMMini }         from './mini-player.mjs';
 import { LMHub }          from './hub.mjs';
+import { LMLog }          from './log.mjs';
 
 Hooks.once('init', () => {
   console.log('Lazy Music | init');
@@ -25,6 +26,16 @@ Hooks.once('ready', () => {
     onStateRequest: (userId) => LMApp._instance?.syncStateToPlayer(userId),
     isLeading: () => !!LMApp._instance?.track
   });
+
+  // Журнал у Мастера (log.mjs): кто с каким браузером пришёл, кто ушёл,
+  // раз в минуту — что играет у каждого
+  LMLog.report('hello', { v: game.modules.get('lazy-music')?.version, br: PlayerReceiver.browser() });
+  LMLog.startBeat(() => (game.user.isGM && LMApp._instance?.track)
+    ? LMApp._instance.logState()
+    : PlayerReceiver.status());
+  if (game.user.isGM) {
+    Hooks.on('userConnected', (user, connected) => LMLog.add(connected ? 'join' : 'leave', {}, user));
+  }
 
   // Одноразовая миграция: убираем API-ключ из world-настроек.
   LMSettings.migrateWorldSecrets().catch(e => console.warn('Lazy Music | migrate:', e));

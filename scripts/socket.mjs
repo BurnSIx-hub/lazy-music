@@ -2,7 +2,23 @@
  * Lazy Music — Socket
  */
 
+import { LMLog } from './log.mjs';
+
 const SOCKET = 'module.lazy-music';
+
+/** Что Мастер разослал — в журнал; громкость не пишем: ползунок шлёт её на каждый сдвиг. */
+function logSend(action, payload, targetId) {
+  if (!game.user?.isGM || action === 'log' || action === 'gmvol' || action === 'state-request') return;
+  const track = action === 'state' ? payload?.playback?.track : payload;
+  LMLog.add('send', {
+    a: action,
+    to: targetId ? (game.users.get(targetId)?.name ?? targetId) : 'всем',
+    id: track?.videoId ?? track?.id,
+    mode: track ? (track.streamUrl ? 'stream' : 'yt') : undefined,
+    pos: typeof (track?.position ?? payload?.pos) === 'number' ? Math.round(track?.position ?? payload?.pos) : undefined,
+    playing: action === 'state' ? !!payload?.playback?.playing : undefined,
+  });
+}
 
 export class LMSocket {
   static _onStateRequest = null;
@@ -24,7 +40,16 @@ export class LMSocket {
 
       // Спросить, что играет, может любой; отвечает только Мастер
       if (data.action === 'state-request') {
-        if (game.user.isGM) this._onStateRequest?.(data.senderId);
+        if (game.user.isGM) {
+          LMLog.add('asks', {}, sender);
+          this._onStateRequest?.(data.senderId);
+        }
+        return;
+      }
+
+      // Отчёт клиента о своей музыке — в журнал Мастера (log.mjs)
+      if (data.action === 'log') {
+        if (game.user.isGM) LMLog.receive(sender, data.payload);
         return;
       }
 
@@ -50,6 +75,7 @@ export class LMSocket {
   }
 
   static emit(action, payload = {}, { targetId = null } = {}) {
+    logSend(action, payload, targetId);
     game.socket.emit(SOCKET, {
       action,
       payload,
