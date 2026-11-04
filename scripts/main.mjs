@@ -116,7 +116,10 @@ function _setupVolumeSync() {
       found = true;
       console.log('Lazy Music | Found Foundry music volume slider');
 
-      const apply = () => _applyFoundryVol(slider.value);
+      // Положение ползунка — не громкость: Foundry пишет в настройку
+      // inputToVolume (в степени 1.5), иначе после отпускания проседало
+      const toVol = foundry.audio?.AudioHelper?.inputToVolume ?? (v => v);
+      const apply = () => _applyFoundryVol(toVol(slider.value));
       slider.addEventListener('input', apply);
       slider.addEventListener('change', apply);
     });
@@ -152,6 +155,15 @@ function _setupVolumeSync() {
 
 function _isFoundryMusicVolumeSlider(slider) {
   if (slider.closest('#lazy-music-app, .lazy-music-app, #lm-mini')) return false;
+
+  // Штатные ползунки названы по настройке (у v13+ имя на обёртке
+  // <range-picker>). Если имя есть — решает только оно: поиск по тексту
+  // вокруг цеплял и «Окружение» с «Интерфейсом» — над ними общий блок
+  // со словом «Музыка» (баг 2026-11-04)
+  // Ползунки звуков в плейлистах (без имени) — тоже не наши
+  const picker = slider.closest('range-picker');
+  const named = (picker ?? slider).getAttribute('name') ?? '';
+  if (picker || /^global\w*Volume$/.test(named)) return named === 'globalPlaylistVolume';
 
   const text = _sliderContext(slider).toLowerCase();
   if (text.includes('globalplaylistvolume') || text.includes('global-playlist-volume')) return true;
