@@ -31,6 +31,9 @@
  *   POST /api/cache/open           → { opened: true }    (открывает cache/ в Проводнике)
  *   GET  /api/ytdlp/version       → { version, ageDays }
  *   POST /api/ytdlp/update        → { updated, from, to }
+ *   GET  /api/probe?u=<url>&u=…&n=<на адрес>  → { rows: [{ id, title, uploader, source }] }
+ *        (лента без скачивания: микс RD<id>, ytsearch1:… — для радио, с 2.13.0)
+ *   GET  /api/deezer?path=/artist/…  → ответ api.deezer.com как есть (у него нет CORS)
  */
 
 const PORT  = 8766;
@@ -197,6 +200,52 @@ async function ytdlp(id, fast) {
   return f;
 }
 
+// ── Радио: лента без скачивания и каталог Deezer ─────────────────────────────
+//
+// Радио собирает модуль (scripts/radio.mjs) — так же, как приложение на ПК.
+// Помощник даёт ему два кирпича, которых у браузера нет: yt-dlp и Deezer
+// без CORS.
+
+const SEP = '\u0001';   // разделитель полей: в названиях роликов не встречается
+
+/** Пускаем только YouTube и поиск yt-dlp — помощник не качалка всего подряд. */
+function probeUrlAllowed(u) {
+  return u.startsWith('https://www.youtube.com/') || /^ytsearch\d*:/.test(u);
+}
+
+async function probe(urls, perUrl) {
+  await ready;
+  const args = [
+    '--flat-playlist', '--playlist-end', String(perUrl),
+    // Один недоступный ролик не губит весь заход; без сети не висим минутами
+    '--ignore-errors', '--socket-timeout', '10', '--extractor-retries', '1',
+    // Без --encoding yt-dlp печатает в кодовой странице консоли: узкий
+    // пробел из названий приходил «�» (замерено 2026-11-06; на ПК так же)
+    '--force-ipv4', '--no-warnings', '--encoding', 'utf-8',
+    '--print', `%(id)s${SEP}%(title)s${SEP}%(uploader)s${SEP}%(playlist_title)s`,
+  ];
+  const cookies = newestCookies();
+  if (cookies) args.push('--cookies', cookies);
+  args.push(...urls);
+  const out = await new Deno.Command(YTDLP, {
+    args,
+    env: { PATH: `${BIN};${Deno.env.get('PATH') ?? ''}`, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    stdout: 'piped', stderr: 'piped',
+  }).output();
+  const dec = new TextDecoder('utf-8');
+  const field = s => (s ?? '').trim() === 'NA' ? '' : (s ?? '').trim();
+  const rows = dec.decode(out.stdout).split('\n').map(l => l.split(SEP))
+    .filter(p => p.length >= 2 && ID_RE.test(field(p[0])))
+    .map(p => ({ id: field(p[0]), title: field(p[1]), uploader: field(p[2]), source: field(p[3]) }));
+  if (!rows.length && !out.success) {
+    const err = dec.decode(out.stderr).trim().split('\n').pop() || 'yt-dlp failed';
+    throw new Error(err);
+  }
+  return rows;
+}
+
+const DEEZER_PATH = /^\/(search|artist)[/?][\w/?=&%.+,-]*$/;
+
 // ── yt-dlp: версия и обновление ──────────────────────────────────────────────
 
 /** Версия бинарника, вида 2026.08.19. */
@@ -281,6 +330,36 @@ async function handler(req) {
     if (!ID_RE.test(id)) return json({ started: false }, 400, origin);
     download(id).catch(() => {});
     return json({ started: true }, 200, origin);
+  }
+
+  if (u.pathname === '/api/probe') {
+    const urls = u.searchParams.getAll('u').filter(probeUrlAllowed).slice(0, 20);
+    const n = Math.max(1, Math.min(60, Number(u.searchParams.get('n')) || 20));
+    if (!urls.length) return json({ error: 'нет адресов' }, 400, origin);
+    try {
+      return json({ rows: await probe(urls, n) }, 200, origin);
+    } catch (e) {
+      log(`⛔ Радио: лента не собралась: ${e.message ?? e}`);
+      return json({ error: String(e.message ?? e) }, 502, origin);
+    }
+  }
+
+  if (u.pathname === '/api/deezer') {
+    const path = u.searchParams.get('path') ?? '';
+    if (!DEEZER_PATH.test(path)) return json({ error: 'path not allowed' }, 400, origin);
+    try {
+      const r = await fetch(`https://api.deezer.com${path}`, { signal: AbortSignal.timeout(15000) });
+      return new Response(await r.text(), {
+        status: r.status,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
+        },
+      });
+    } catch (e) {
+      return json({ error: String(e.message ?? e) }, 502, origin);
+    }
   }
 
   if (u.pathname === '/api/cache/status') {

@@ -10,6 +10,7 @@ import { LMCache }      from './cache.mjs';
 import { LMPhone }      from './phone.mjs';
 import { PlayerReceiver } from './player-receiver.mjs';
 import { LMLog }        from './log.mjs';
+import { startRadio, cancelRadio } from './radio.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -129,6 +130,9 @@ export class LMApp extends HandlebarsApp {
     this._progressInterval = null;
     this._playLock    = false;
     this.gmVolume     = parseFloat(localStorage.getItem('lm-gm-vol') ?? '1');
+    // Радио по треку (radio.mjs): название затравки, пока его список открыт
+    // на месте поиска; null — открыто другое
+    this.radioView    = null;
     this.relayMode    = false; // true — текущий трек играет через наш сервер, не через YT-iframe
     this._helperAlive = null;  // null — ещё не проверяли
   }
@@ -211,6 +215,7 @@ export class LMApp extends HandlebarsApp {
       // Подсказка «как закэшировать» нужна, только если нескачанное реально есть
       cacheHint: this._helperAlive === false && uncached,
       searchMode: this.searchMode,
+      radioView: this.searchMode ? this.radioView : null,
       track: this.track,
       // Плашка «сейчас играет»: показываем обложку или заглушку, но не обе
       npArt:     this.track?.albumArt || '',
@@ -248,6 +253,7 @@ export class LMApp extends HandlebarsApp {
     on('#lm-prev',            'click', () => this._prev());
     on('#lm-next',            'click', () => this._next());
     on('#lm-stop',            'click', () => this._stop());
+    on('#lm-radio',           'click', () => this._startRadio());
     on('#lm-shuffle',         'click', () => {
       this.shuffle = !this.shuffle;
       root.querySelector('#lm-shuffle')?.classList.toggle('active', this.shuffle);
@@ -262,7 +268,7 @@ export class LMApp extends HandlebarsApp {
     on('#lm-clear-search',    'click', () => {
       const input = root.querySelector('#lm-search-input');
       if (input) input.value = '';
-      this.searchMode = false; this.searchResults = []; this._scrollTop = true; this.render(false);
+      this.searchMode = false; this.searchResults = []; this.radioView = null; this._scrollTop = true; this.render(false);
     });
     on('#lm-sync-toggle',     'change', e => this._setSync(e.target.checked));
     on('#lm-open-cache',      'click', () => this._openCacheFolder());
@@ -372,7 +378,7 @@ export class LMApp extends HandlebarsApp {
     const pl = this.playlists.find(p => p.id === id);
     if (!pl) return;
     this.playlist = pl;
-    this.searchMode = false; this.searchResults = [];
+    this.searchMode = false; this.searchResults = []; this.radioView = null;
     this._scrollTop = true;
 
     // Свой плейлист — треки лежат локально, в сеть ходить не нужно
@@ -583,6 +589,8 @@ export class LMApp extends HandlebarsApp {
   _playFromView(i) {
     const pool = this.searchMode ? this.searchResults : this.tracks;
     if (!pool[i] || this._playLock) return;
+    // Включили своё — недособранное радио очередь уже не тронет
+    if (!(this.searchMode && this.radioView)) cancelRadio();
     this.queue = [...pool];
     this.queueFrom = this.searchMode ? null : (this.playlist?.id ?? null);
     this._skippedIds?.clear();
@@ -997,6 +1005,7 @@ export class LMApp extends HandlebarsApp {
   }
 
   _stop() {
+    cancelRadio();
     getYTPlayer()?.stopVideo?.();
     if (_gmAudio) { _gmAudio.pause(); _gmAudio.removeAttribute('src'); _gmAudio.load(); }
     this.relayMode = false;
@@ -1125,10 +1134,66 @@ export class LMApp extends HandlebarsApp {
     }, 1200);
   }
 
+  // ── Радио по треку ────────────────────────────────────────────────────────
+  //
+  // Собирает radio.mjs через помощника, как в приложениях: ближний круг
+  // (микс YouTube) играет сразу, дальний (другие исполнители) вплетается
+  // через полминуты. Список радио встаёт на место поиска.
+
+  _startRadio() {
+    if (!this.track) return ui.notifications.info(L('RadioNoTrack'));
+    if (this.track.source && this.track.source !== 'youtube') return ui.notifications.info(L('RadioNoTrack'));
+    const seed = {
+      id: this.track.id,
+      title: this.track.displayTitle || this.track.title || this.track.id,
+      artist: this.track.artist || '',
+    };
+    LMLog.add('radio', { id: seed.id, title: seed.title });
+    const say = (key, data, kind) => ui.notifications[kind]?.(LF(key, data));
+    startRadio(seed, this, say);
+  }
+
+  /** Радио собралось: очередь — оно, затравка первой. Играющая затравка не перезапускается. */
+  radioQueue(queue, seed) {
+    this.queueFrom = null;
+    this._skippedIds?.clear();
+    this._showRadio(queue, seed.title);
+    if (this.track?.id === seed.id) {
+      this.queue = [this.track, ...queue.slice(1)];
+      this.trackIdx = 0;
+      this._shuffleNext = null;
+      if (this.relayMode) this._prefetchNext(this.track.id);
+    } else {
+      this.queue = queue;
+      PlayerReceiver.stop();
+      this._playIdx(0);
+    }
+  }
+
+  /** Дальний круг: очередь пересобрана вокруг играющего. */
+  radioWiden(queue) {
+    if (!this.track) return;
+    this.queue = [this.track, ...queue.slice(1)];
+    this.trackIdx = 0;
+    this._shuffleNext = null;
+    if (this.relayMode) this._prefetchNext(this.track.id);
+    if (this.searchMode && this.radioView) this._showRadio(this.queue, this.radioView);
+  }
+
+  _showRadio(queue, title) {
+    this.searchMode = true;
+    this.searchResults = [...queue];
+    this.radioView = title;
+    this._scrollTop = true;
+    this.render(false);
+    this._syncCacheState();
+  }
+
   // ── Search ────────────────────────────────────────────────────────────────
   async _search(q) {
     if (!q?.trim()) return;
     this.searchMode = true;
+    this.radioView = null;
     try {
       this.searchResults = await YouTubeAPI.search(q);
       this._scrollTop = true;

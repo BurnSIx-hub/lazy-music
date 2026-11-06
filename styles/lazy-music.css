@@ -122,6 +122,8 @@
 
 .lm-cache-hint { display:flex; align-items:center; gap:8px; margin:0 12px 4px; padding:6px 10px; border:1px solid var(--lm-border); border-left:2px solid var(--lm-gold); border-radius:var(--lm-r); background:var(--lm-bg3); color:var(--lm-dim); font-size:11px; line-height:1.4; }
 .lm-cache-hint i { color:var(--lm-gold); flex-shrink:0; }
+.lm-radio-head { display:flex; align-items:center; gap:8px; padding:6px 12px; color:var(--lm-gold); font-size:12px; border-bottom:1px solid var(--lm-border); flex-shrink:0; }
+.lm-radio-head span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .lm-track-art { width:32px; height:32px; object-fit:cover; border-radius:3px; flex-shrink:0; }
 .lm-track-art-ph { background:var(--lm-bg3); border:1px solid var(--lm-border); display:flex; align-items:center; justify-content:center; color:var(--lm-dim); font-size:11px; }
