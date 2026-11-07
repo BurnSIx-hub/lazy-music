@@ -76,6 +76,14 @@
         </div>
       {{/if}}
 
+      {{#if findShown}}
+        <div class="lm-find">
+          <i class="fas fa-filter"></i>
+          <input type="text" id="lm-find-input" placeholder="{{localize 'LAZYMUSIC.FindPlaceholder'}}" value="{{findQuery}}">
+          <button id="lm-find-clear" title="{{localize 'LAZYMUSIC.FindClear'}}" {{#unless findQuery}}hidden{{/unless}}><i class="fas fa-times"></i></button>
+        </div>
+      {{/if}}
+
       {{#if cacheHint}}
         <div class="lm-cache-hint">
           <i class="fas fa-triangle-exclamation"></i>
@@ -114,6 +122,7 @@
               {{/if}}
             </div>
           {{/each}}
+          <div class="lm-empty lm-find-none" hidden><p>{{localize 'LAZYMUSIC.FindNone'}}</p></div>
         {{else if playlist}}
           <div class="lm-empty"><i class="fas fa-spinner fa-spin"></i> {{localize 'LAZYMUSIC.Loading'}}</div>
         {{else}}

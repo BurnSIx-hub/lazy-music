@@ -16,6 +16,17 @@ const MODULE_ID = 'lazy-music';
 
 // Локализация: строки в lang/ru.json и lang/en.json (ключи LAZYMUSIC.*)
 const L  = (k)    => game.i18n.localize(`LAZYMUSIC.${k}`);
+
+// Поиск по плейлисту — как на ПК и телефоне: строка появляется, когда
+// листать уже долго, слова ищутся без регистра, диакритики и «ё/е»
+const FIND_FROM = 10;
+const fold = s => String(s ?? '').toLowerCase().normalize('NFKD').replace(/\p{M}+/gu, '').replace(/ё/g, 'е');
+function findMatches(t, query) {
+  const want = fold(query).trim().split(/\s+/).filter(Boolean);
+  if (!want.length) return true;
+  const hay = fold(`${t.displayTitle ?? ''} ${t.title ?? ''} ${t.artist ?? ''}`);
+  return want.every(w => hay.includes(w));
+}
 const LF = (k, d) => game.i18n.format(`LAZYMUSIC.${k}`, d);
 
 // Статический плеер — один на сессию
@@ -113,6 +124,8 @@ export class LMApp extends HandlebarsApp {
     this.tracks       = [];
     this.searchResults = [];
     this.searchMode   = false;
+    // Набранное в поиске по плейлисту — своё у каждого плейлиста
+    this._finds       = new Map();
     this.track        = null;
     this.playing      = false;
     // volume берётся из game.settings 'core.globalPlaylistVolume' напрямую
@@ -216,6 +229,8 @@ export class LMApp extends HandlebarsApp {
       cacheHint: this._helperAlive === false && uncached,
       searchMode: this.searchMode,
       radioView: this.searchMode ? this.radioView : null,
+      findShown: this._findShown(),
+      findQuery: this._findShown() ? (this._finds.get(this.playlist.id) ?? '') : '',
       track: this.track,
       // Плашка «сейчас играет»: показываем обложку или заглушку, но не обе
       npArt:     this.track?.albumArt || '',
@@ -270,6 +285,9 @@ export class LMApp extends HandlebarsApp {
       if (input) input.value = '';
       this.searchMode = false; this.searchResults = []; this.radioView = null; this._scrollTop = true; this.render(false);
     });
+    on('#lm-find-input',      'input', e => { this._finds.set(this.playlist?.id, e.target.value); this._applyFind(); });
+    on('#lm-find-input',      'keydown', e => { if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); this._clearFind(); } });
+    on('#lm-find-clear',      'click', () => this._clearFind());
     on('#lm-sync-toggle',     'change', e => this._setSync(e.target.checked));
     on('#lm-open-cache',      'click', () => this._openCacheFolder());
     on('#lm-clear-cache',     'click', () => this._clearCache());
@@ -308,6 +326,7 @@ export class LMApp extends HandlebarsApp {
   // ApplicationV2 hook
   _onRender(context, options) {
     this._attachListeners(this.element);
+    this._applyFind();
     // Открыли другой список или поиск — его смотрят с начала
     if (this._scrollTop) {
       this._scrollTop = false;
@@ -327,6 +346,34 @@ export class LMApp extends HandlebarsApp {
     const now = newElement?.querySelector('#lm-search-input');
     if (was && now) now.value = was.value;
   }
+  // ── Поиск по плейлисту ────────────────────────────────────────────────────
+  _findShown() { return !this.searchMode && !!this.playlist && this.tracks.length > FIND_FROM; }
+
+  // Прячем строки, а не перерисовываем: набранное и фокус остаются на месте.
+  // Найденная строка играет весь плейлист с этого места — номер у неё прежний
+  _applyFind() {
+    const el = this._el();
+    if (!el) return;
+    const input = el.querySelector('#lm-find-input');
+    const query = input ? input.value : '';
+    let shown = 0;
+    el.querySelectorAll('.lm-tracks .lm-track').forEach(row => {
+      const t = this.tracks[+row.dataset.i];
+      const ok = !input || !t || findMatches(t, query);
+      row.hidden = !ok;
+      if (ok) shown++;
+    });
+    el.querySelector('#lm-find-clear')?.toggleAttribute('hidden', !query);
+    el.querySelector('.lm-find-none')?.toggleAttribute('hidden', !input || shown > 0);
+  }
+
+  _clearFind() {
+    this._finds.delete(this.playlist?.id);
+    const input = this._el()?.querySelector('#lm-find-input');
+    if (input) { input.value = ''; input.focus(); }
+    this._applyFind();
+  }
+
   // v12/v13 hook
   activateListeners(html)     { super.activateListeners?.(html); this._attachListeners(html); }
 
