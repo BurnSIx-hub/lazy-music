@@ -386,5 +386,22 @@ const syncFromPc = (app, lists) => { save(lists); app._afterLibrarySync({ added:
   LMLog._entries = [];
 }
 
+// 12. Ровная громкость: замер по BS.1770 и поправка трека
+{
+  const { integratedLoudness, LMLoudness, TARGET } = await import(ROOT + 'loudness.mjs');
+  const rate = 48000, n = rate * 5;
+  const sine = (amp) => Float32Array.from({ length: n }, (_, i) => amp * Math.sin(2 * Math.PI * 997 * i / rate));
+  const full = sine(1);
+  ok(Math.abs(integratedLoudness([full, full], rate)) < 0.05, 'громкость: синус 0 dBFS в двух каналах — 0 LUFS');
+  ok(Math.abs(integratedLoudness([sine(0.1), sine(0.1)], rate) + 20) < 0.05, 'громкость: −20 дБ — −20 LUFS');
+  ok(integratedLoudness([new Float32Array(n), new Float32Array(n)], rate) === null, 'громкость: тишина — не мерится');
+  LMLoudness._pending = { loud: { l: TARGET + 10 }, quiet: { l: TARGET - 6 }, bad: { l: null } };
+  ok(Math.abs(LMLoudness.gainDb('loud') + 10) < 1e-9 && LMLoudness.gainDb('quiet') === 0 && LMLoudness.gainDb('bad') === 0,
+    'громкость: громкий притихает до общего уровня, тихий и незамеренный — как есть');
+  LMLoudness.adjust('loud', -1);
+  ok(Math.abs(LMLoudness.gainDb('loud') + 12) < 1e-9 && LMLoudness.known('loud') && !LMLoudness.known('new'), 'громкость: «тише» — ещё на шаг');
+  clearTimeout(LMLoudness._timer); LMLoudness._pending = null;
+}
+
 console.log(`\nитого: ${pass} ок, ${fail} ошибок`);
 process.exit(fail ? 1 : 0);

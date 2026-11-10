@@ -260,6 +260,26 @@ button.lm-panel-btn i { animation: lm-spin 6s linear infinite; }
   gap: 6px;
   flex-shrink: 0;
   width: 140px;
+  flex-wrap: wrap;
+}
+
+/* Ровная громкость: поправка играющего трека — строкой под ползунком */
+.lm-tg {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.lm-tg[hidden] { display: none; }
+.lm-tg .lm-tg-btn { width: 22px; height: 22px; font-size: 11px; padding: 0; }
+#lm-tg-db {
+  font-size: 10px;
+  color: var(--lm-dim);
+  min-width: 38px;
+  text-align: center;
+  font-family: var(--lm-font);
+  cursor: help;
 }
 
 .lm-gm-vol-label {

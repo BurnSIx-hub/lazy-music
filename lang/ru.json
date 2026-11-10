@@ -113,5 +113,9 @@
   "LAZYMUSIC.PhoneUntouched": "Списков, которых нет на телефоне, не трогаю: {n}",
   "LAZYMUSIC.PhoneApply": "Перенести",
   "LAZYMUSIC.PhoneDone": "С телефона: добавлено {added}, убрано {removed}",
-  "LAZYMUSIC.HubSynced": "Lazy Music: плейлисты сведены с приложением на ПК — +{added} −{removed}"
+  "LAZYMUSIC.HubSynced": "Lazy Music: плейлисты сведены с приложением на ПК — +{added} −{removed}",
+  "LAZYMUSIC.TrackQuieter": "Этот трек тише",
+  "LAZYMUSIC.TrackLouder": "Этот трек громче",
+  "LAZYMUSIC.Db": "дБ",
+  "LAZYMUSIC.TrackGainHint": "Насколько притушен этот трек, чтобы громкие не выбивались из общего уровня. Кнопками рядом можно подправить — запомнится для этого трека"
 }

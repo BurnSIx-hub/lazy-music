@@ -67,6 +67,7 @@ export class LMSocket {
           case 'pause':  PlayerReceiver.pause();                   break;
           case 'stop':   PlayerReceiver.stop();                    break;
           case 'gmvol':  PlayerReceiver.setGMVolume(payload.vol);   break;
+          case 'gain':   PlayerReceiver.setTrackGain(payload.id, payload.gain); break;
           case 'seek':   PlayerReceiver.seek(payload.pos);         break;
           case 'state':  PlayerReceiver.restoreState(payload);      break;
         }

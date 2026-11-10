@@ -9,6 +9,7 @@ import { PlayerReceiver } from './player-receiver.mjs';
 import { LMMini }         from './mini-player.mjs';
 import { LMHub }          from './hub.mjs';
 import { LMLog }          from './log.mjs';
+import { LMLoudness }     from './loudness.mjs';
 
 Hooks.once('init', () => {
   console.log('Lazy Music | init');
@@ -18,6 +19,7 @@ Hooks.once('init', () => {
     Handlebars.registerHelper('eq', (a, b) => a === b);
   }
   LMSettings.register();
+  LMLoudness.register();
 });
 
 Hooks.once('ready', () => {

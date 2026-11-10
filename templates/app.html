@@ -176,6 +176,12 @@
       </div>
       <input type="range" id="lm-gm-vol-slider" min="0" max="1" step="0.01" value="{{gmVolume}}" title="{{localize 'LAZYMUSIC.GMVolumeTooltip'}}">
       <span id="lm-gm-vol-pct">{{gmVolumePct}}%</span>
+      {{!-- Ровная громкость: поправка играющего трека и ручная подстройка --}}
+      <span class="lm-tg" hidden>
+        <button id="lm-tg-down" class="lm-btn lm-tg-btn" title="{{localize 'LAZYMUSIC.TrackQuieter'}}"><i class="fas fa-volume-down"></i></button>
+        <span id="lm-tg-db"></span>
+        <button id="lm-tg-up" class="lm-btn lm-tg-btn" title="{{localize 'LAZYMUSIC.TrackLouder'}}"><i class="fas fa-volume-up"></i></button>
+      </span>
     </div>
   </div>
 

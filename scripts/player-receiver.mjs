@@ -12,20 +12,22 @@ let audioEl     = null;   // HTML5 Audio — поток с нашего серв
 let mode        = 'yt';   // 'yt' | 'stream' — что сейчас играет
 let foundryVol  = 1.0;
 let gmVol       = 1.0;
+/** Ровная громкость: множитель трека от Мастера (loudness.mjs). У YouTube — 1. */
+let trackGain   = 1.0;
 
 function _effectiveVol() {
   return Math.round(Math.min(1, foundryVol * gmVol) * 100);
 }
 
 function _applyAudioVol() {
-  if (audioEl) audioEl.volume = Math.min(1, foundryVol * gmVol);
+  if (audioEl) audioEl.volume = Math.min(1, foundryVol * gmVol * trackGain);
 }
 
 // ── Для журнала Мастера (log.mjs): что получили и чем кончилось ─────────────
 
 const r2 = (x) => Math.round(x * 100) / 100;
 /** Громкость: итоговая, ползунок «Музыка» Foundry, громкость Мастера. 0 — не услышит. */
-const _vol = () => ({ vol: r2(Math.min(1, foundryVol * gmVol)), fv: r2(foundryVol), gv: r2(gmVol) });
+const _vol = () => ({ vol: r2(Math.min(1, foundryVol * gmVol)), fv: r2(foundryVol), gv: r2(gmVol), tg: r2(trackGain) });
 
 /** Последняя команда «играй»: заиграло ли и через сколько. */
 let cmd = null;
@@ -91,6 +93,13 @@ export class PlayerReceiver {
     _applyAudioVol();
   }
 
+  /** Мастер замерил или подправил громкость трека. */
+  static setTrackGain(id, gain) {
+    if (_id() !== id || mode !== 'stream') return;
+    trackGain = Math.max(0, Math.min(1, Number(gain) || 1));
+    _applyAudioVol();
+  }
+
   /** Браузер и система — для журнала Мастера. */
   static browser() { return _browser(); }
 
@@ -118,6 +127,7 @@ export class PlayerReceiver {
       pos: Math.round(payload.position || 0), auto: autoplay,
     });
 
+    trackGain = payload.streamUrl ? Math.max(0, Math.min(1, Number(payload.gain) || 1)) : 1;
     if (payload.streamUrl) {
       // Аудио с нашего сервера — без YouTube-iframe, ошибки 150 не бывает
       PlayerReceiver._playStream(payload.streamUrl, payload.position || 0, autoplay);

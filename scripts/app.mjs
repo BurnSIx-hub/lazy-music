@@ -11,6 +11,7 @@ import { LMPhone }      from './phone.mjs';
 import { PlayerReceiver } from './player-receiver.mjs';
 import { LMLog }        from './log.mjs';
 import { startRadio, cancelRadio } from './radio.mjs';
+import { LMLoudness, measureUrl } from './loudness.mjs';
 
 const MODULE_ID = 'lazy-music';
 
@@ -196,6 +197,84 @@ export class LMApp extends HandlebarsApp {
   async _syncCacheState() {
     await Promise.all([LMCache.refresh(), this._pingHelper()]);
     this.render(false); // при закрытом окне это no-op
+    this._sweepLoudness();
+  }
+
+  // ── Ровная громкость (loudness.mjs) ─────────────────────────────────────
+
+  /** Множитель громкости играющего трека. У YouTube-плеера своя громкость — 1. */
+  _trackGain() {
+    return this.relayMode && this.track ? LMLoudness.gain(this.track.id) : 1;
+  }
+
+  _applyGMAudioVol() {
+    if (_gmAudio) _gmAudio.volume = Math.min(1, this._getFoundryVol() * this.gmVolume * this._trackGain());
+  }
+
+  /** Поправку играющего — себе и игрокам. */
+  _pushTrackGain() {
+    this._applyGMAudioVol();
+    if (this.track && this.relayMode && this._syncEnabled()) {
+      LMSocket.emit('gain', { id: this.track.id, gain: LMLoudness.gain(this.track.id) });
+    }
+    this._drawTrackGain();
+  }
+
+  /** Замеры по одному: декодирование трека ест память, два разом незачем. */
+  _measureQueue = Promise.resolve();
+
+  _measure(id, url) {
+    // Нечем декодировать (старый браузер) — и мерить нечем
+    if (!game.user.isGM || LMLoudness.known(id) || typeof OfflineAudioContext === 'undefined') return this._measureQueue;
+    this._measureQueue = this._measureQueue.then(async () => {
+      if (LMLoudness.known(id)) return;
+      try {
+        const l = await measureUrl(new URL(url, window.location.href).href);
+        LMLoudness.setLoudness(id, l);
+        if (this.track?.id === id && this.relayMode) this._pushTrackGain();
+      } catch (e) {
+        console.warn('Lazy Music | замер громкости не вышел:', id, e?.message ?? e);
+      }
+    });
+    return this._measureQueue;
+  }
+
+  /**
+   * Скачанные раньше треки меряются в фоне, по одному в несколько секунд:
+   * чтобы и старые плейлисты играли ровно, а Foundry не подтормаживал.
+   */
+  async _sweepLoudness() {
+    if (this._sweeping || !game.user.isGM || typeof OfflineAudioContext === 'undefined') return;
+    this._sweeping = true;
+    try {
+      for (const [id, path] of [...LMCache._map]) {
+        if (LMLoudness.known(id)) continue;
+        await this._measure(id, path);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } finally {
+      this._sweeping = false;
+    }
+  }
+
+  /** Тише или громче этот трек — шагом ADJ_STEP дБ, запоминается. */
+  _adjustTrackGain(dir) {
+    if (!this.track || !this.relayMode) return;
+    LMLoudness.adjust(this.track.id, dir);
+    this._pushTrackGain();
+  }
+
+  _drawTrackGain() {
+    const el = this._el();
+    const box = el?.querySelector('.lm-tg');
+    if (!box) return;
+    const on = !!this.track && this.relayMode;
+    box.toggleAttribute('hidden', !on);
+    if (!on) return;
+    const db = Math.round(LMLoudness.gainDb(this.track.id));
+    const label = box.querySelector('#lm-tg-db');
+    label.textContent = db ? `${db < 0 ? '−' : '+'}${Math.abs(db)} ${L('Db')}` : `0 ${L('Db')}`;
+    label.title = L('TrackGainHint');
   }
 
   _el() {
@@ -294,6 +373,8 @@ export class LMApp extends HandlebarsApp {
     on('#lm-update-ytdlp',    'click', () => this._updateYtdlp());
     on('#lm-export-log',      'click', () => LMLog.download());
     on('#lm-gm-vol-slider',   'input',  e => this._setGMVolume(parseFloat(e.target.value)));
+    on('#lm-tg-down',         'click',  () => this._adjustTrackGain(-1));
+    on('#lm-tg-up',           'click',  () => this._adjustTrackGain(+1));
 
     // Progress bar drag
     const pb = root.querySelector('#lm-progress-bar');
@@ -582,7 +663,10 @@ export class LMApp extends HandlebarsApp {
       position,
       title: this.track.displayTitle || this.track.title
     };
-    if (this.relayMode) track.streamUrl = this._relayUrl || getGMAudio().src;
+    if (this.relayMode) {
+      track.streamUrl = this._relayUrl || getGMAudio().src;
+      track.gain = LMLoudness.gain(this.track.id);
+    }
     return { track, playing: this.playing };
   }
 
@@ -910,7 +994,7 @@ export class LMApp extends HandlebarsApp {
 
     const audio = getGMAudio();
     audio.src = url;
-    audio.volume = Math.min(1, this._getFoundryVol() * this.gmVolume);
+    audio.volume = Math.min(1, this._getFoundryVol() * this.gmVolume * LMLoudness.gain(videoId));
     audio.play().catch(e => {
       console.warn('Lazy Music | GM autoplay blocked:', e?.message);
       if (e?.name !== 'AbortError') LMLog.add('blocked', { id: videoId, mode: 'stream', err: e?.name });
@@ -919,10 +1003,15 @@ export class LMApp extends HandlebarsApp {
     if (this._syncEnabled()) {
       LMSocket.emit('play', {
         ...this.track, videoId, streamUrl: url, position: 0,
-        title: this.track.displayTitle || this.track.title
+        title: this.track.displayTitle || this.track.title,
+        gain: LMLoudness.gain(videoId)
       });
     }
 
+    // Не замерен — меряем сейчас: первые секунды громкий трек ещё громкий,
+    // потом притихает, а дальше всегда играет ровно
+    this._drawTrackGain();
+    this._measure(videoId, url);
     this._prefetchNext(videoId, source);
   }
 
@@ -1094,7 +1183,7 @@ export class LMApp extends HandlebarsApp {
     // Применяем к своему GM плееру тоже (умножаем на Foundry vol)
     const effective = this.gmVolume * this._getFoundryVol();
     getYTPlayer()?.setVolume?.(Math.round(effective * 100));
-    if (_gmAudio) _gmAudio.volume = Math.min(1, effective);
+    if (_gmAudio) _gmAudio.volume = Math.min(1, effective * this._trackGain());
   }
 
   // Вызывается из main.mjs когда GM двигает ползунок "Музыка"
@@ -1102,7 +1191,7 @@ export class LMApp extends HandlebarsApp {
     // GM плеер: Foundry vol * gmVolume
     const effective = vol * this.gmVolume;
     getYTPlayer()?.setVolume?.(Math.round(effective * 100));
-    if (_gmAudio) _gmAudio.volume = Math.min(1, effective);
+    if (_gmAudio) _gmAudio.volume = Math.min(1, effective * this._trackGain());
   }
 
   _seekTo(pct) {
