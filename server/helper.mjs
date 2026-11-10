@@ -312,6 +312,13 @@ async function handler(req) {
     if (!localHosts().has(host)) {
       return json({ error: 'origin not allowed' }, 403);
     }
+    // Откуда пришла страница Foundry — по этому адресу слежение спросит,
+    // жив ли сервер, если Foundry запущен без своего окна (node main.js)
+    if (/^https?:/.test(origin)) {
+      seenOrigins.delete(origin);
+      seenOrigins.add(origin);
+      if (seenOrigins.size > 3) seenOrigins.delete(seenOrigins.values().next().value);
+    }
   }
 
   if (u.pathname === '/api/ping') return json({ ok: true }, 200, origin);
@@ -518,16 +525,39 @@ async function syncYtdlp() {
 
 // ── Слежение за Foundry: закрыли Foundry → помощник выходит сам ──────────────
 
+/** Адреса страниц Foundry, с которых приходили запросы, — свежие в конце. */
+const seenOrigins = new Set();
+
+/** Отвечает ли сервер Foundry по адресу (`/api/status` есть у всех версий). */
+async function serverAnswers(origin) {
+  try {
+    const res = await fetch(`${origin}/api/status`, { signal: AbortSignal.timeout(3000) });
+    await res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Открыт ли Foundry: окно программы — или сервер без окна (`node main.js`,
+ * так его поднимают на выделенной машине и из других запускалок). Сервер
+ * ищем по адресам, откуда приходила страница, и по обычному 30000.
+ */
 async function foundryRunning() {
   try {
     const out = await new Deno.Command('tasklist', {
       args: ['/FI', 'IMAGENAME eq Foundry Virtual Tabletop.exe', '/FO', 'CSV', '/NH'],
       stdout: 'piped', stderr: 'null',
     }).output();
-    return new TextDecoder().decode(out.stdout).includes('Foundry Virtual Tabletop');
+    if (new TextDecoder().decode(out.stdout).includes('Foundry Virtual Tabletop')) return true;
   } catch {
     return true; // не смогли проверить — лучше остаться работать
   }
+  for (const origin of new Set([...seenOrigins, 'http://127.0.0.1:30000'])) {
+    if (await serverAnswers(origin)) return true;
+  }
+  return false;
 }
 
 function startWatchdog() {
