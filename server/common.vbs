@@ -16,49 +16,110 @@ Function FoundryCandidates()
     "D:\Foundry Virtual Tabletop\Foundry Virtual Tabletop.exe")
 End Function
 
+' Several Foundry versions often sit side by side: a new version gets installed
+' into its own folder and the old one stays. Taking the first path that exists
+' kept starting the old version after an update, so every Foundry we can find -
+' the list above and Foundry's own shortcuts - is compared by file version and
+' the newest one wins.
 Function FindFoundry()
-  Dim f, c
+  Dim f, c, best, bestVer, v
   Set f = CreateObject("Scripting.FileSystemObject")
-  FindFoundry = ""
-  For Each c In FoundryCandidates()
-    If f.FileExists(c) Then
-      FindFoundry = c
-      Exit Function
+  best = ""
+  bestVer = ""
+  For Each c In AllFoundries()
+    v = ""
+    On Error Resume Next
+    v = f.GetFileVersion(c)
+    On Error GoTo 0
+    If best = "" Or NewerVersion(v, bestVer) Then
+      best = c
+      bestVer = v
     End If
   Next
-  ' Not in the usual places: ask Foundry's own shortcut. A path added to the
-  ' list above is lost with every module update, the shortcut is not
-  FindFoundry = FoundryFromShortcuts()
+  FindFoundry = best
+End Function
+
+' Every existing Foundry exe from the list and from the shortcuts, no repeats.
+Function AllFoundries()
+  Dim f, found, c
+  Set f = CreateObject("Scripting.FileSystemObject")
+  Set found = CreateObject("Scripting.Dictionary")
+  found.CompareMode = 1
+  For Each c In FoundryCandidates()
+    If f.FileExists(c) Then
+      If Not found.Exists(c) Then found.Add c, True
+    End If
+  Next
+  For Each c In FoundryFromShortcuts()
+    If Not found.Exists(c) Then found.Add c, True
+  Next
+  AllFoundries = found.Keys
+End Function
+
+' True when version a ("14.370.0.0") is newer than b. An unknown version is oldest.
+Function NewerVersion(a, b)
+  Dim x, y, i, p, q
+  x = Split(a & "", ".")
+  y = Split(b & "", ".")
+  NewerVersion = False
+  For i = 0 To 3
+    p = VersionPart(x, i)
+    q = VersionPart(y, i)
+    If p > q Then
+      NewerVersion = True
+      Exit Function
+    End If
+    If p < q Then Exit Function
+  Next
+End Function
+
+Function VersionPart(parts, i)
+  VersionPart = -1
+  If i > UBound(parts) Then Exit Function
+  If IsNumeric(parts(i)) Then VersionPart = CLng(parts(i))
 End Function
 
 ' Foundry's installer puts "Foundry Virtual Tabletop" shortcuts on the Desktop
-' and in the Start menu - read where they point.
+' and in the Start menu - read where they point. A path added to the list above
+' is lost with every module update, the shortcuts are not.
 Function FoundryFromShortcuts()
-  Dim f, s, place, dir, folder, lnk, target
+  Dim f, s, place, dir, folder, lnk, target, found
   Set f = CreateObject("Scripting.FileSystemObject")
   Set s = CreateObject("WScript.Shell")
-  FoundryFromShortcuts = ""
+  Set found = CreateObject("Scripting.Dictionary")
+  found.CompareMode = 1
   On Error Resume Next
   For Each place In Array("Desktop", "AllUsersDesktop", "Programs", "AllUsersPrograms")
     dir = s.SpecialFolders(place)
     If dir <> "" And f.FolderExists(dir) Then
       For Each lnk In Array(dir & "\Foundry Virtual Tabletop.lnk", dir & "\Foundry VTT.lnk")
         target = ShortcutTarget(lnk)
-        If target <> "" Then
-          FoundryFromShortcuts = target
-          Exit Function
-        End If
+        If target <> "" And Not found.Exists(target) Then found.Add target, True
       Next
       For Each folder In f.GetFolder(dir).SubFolders
         target = ShortcutTarget(folder.Path & "\Foundry Virtual Tabletop.lnk")
-        If target <> "" Then
-          FoundryFromShortcuts = target
-          Exit Function
-        End If
+        If target <> "" And Not found.Exists(target) Then found.Add target, True
       Next
     End If
   Next
+  FoundryFromShortcuts = found.Keys
 End Function
+
+' The "with music" shortcut takes its icon from the Foundry it was made with.
+' After an update that path may be gone - point it at the current one.
+Sub RefreshMusicShortcutIcon(foundryExe)
+  Dim f, s, path, lnk
+  Set f = CreateObject("Scripting.FileSystemObject")
+  Set s = CreateObject("WScript.Shell")
+  On Error Resume Next
+  path = s.SpecialFolders("Desktop") & "\Foundry VTT (with music).lnk"
+  If foundryExe = "" Or Not f.FileExists(path) Then Exit Sub
+  Set lnk = s.CreateShortcut(path)
+  If LCase(lnk.IconLocation) <> LCase(foundryExe & ",0") Then
+    lnk.IconLocation = foundryExe & ",0"
+    lnk.Save
+  End If
+End Sub
 
 ' The shortcut's target if it is Foundry itself and still exists, otherwise "".
 Function ShortcutTarget(lnk)

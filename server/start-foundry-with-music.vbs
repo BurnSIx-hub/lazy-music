@@ -30,6 +30,7 @@ If foundryExe = "" Then
          "The music helper is already running, so you can also just start" & vbCrLf & _
          "Foundry the usual way.", 48, "Lazy Music"
 Else
+  RefreshMusicShortcutIcon foundryExe
   ' Foundry inherits our working folder - the module's server\ when started from
   ' the shortcut - and would hold it, so module updates failed with EBUSY
   sh.CurrentDirectory = fso.GetParentFolderName(foundryExe)
