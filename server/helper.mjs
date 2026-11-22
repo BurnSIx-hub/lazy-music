@@ -24,8 +24,11 @@
  *
  * API:
  *   GET /api/ping                  → { ok: true }
- *   GET /api/yt/ensure?id=<vid>    → { ready: true, url: "lazy-music-cache/<vid>.m4a" }
- *   GET /api/yt/prefetch?id=<vid>  → { started: true }   (скачивание в фоне)
+ *   GET /api/yt/ensure?id=<vid>[&a=<исполнитель>&t=<название>]
+ *                                  → { ready: true, url: "lazy-music-cache/<vid>.m4a" }
+ *        YouTube просит подтвердить, что не бот, — копия с SoundCloud (с 2.15.0):
+ *                                  → { ready: true, url: "…/<vid>.sc.m4a", sc: true }
+ *   GET /api/yt/prefetch?id=<vid>[&a=…&t=…]  → { started: true }   (скачивание в фоне)
  *   GET /api/cache/status          → { files: n, bytes: n }
  *   POST /api/cache/clear          → { cleared: n, freed: bytes }
  *   POST /api/cache/open           → { opened: true }    (открывает cache/ в Проводнике)
@@ -126,28 +129,187 @@ const inFlight = new Map();
 /** Сверка yt-dlp при старте — до неё не качаем (см. syncYtdlp). */
 let ready = Promise.resolve();
 
-function download(id) {
+/**
+ * → { file, sc }. `sc` — копия с SoundCloud: YouTube просит подтвердить, что
+ * не бот, а трек нашёлся там (`who` — исполнитель и название для поиска).
+ */
+function download(id, who = null) {
   let p = inFlight.get(id);
   if (!p) {
-    p = _download(id).finally(() => inFlight.delete(id));
+    p = _download(id, who).finally(() => inFlight.delete(id));
     inFlight.set(id, p);
   }
   return p;
 }
 
-async function _download(id) {
+async function _download(id, who) {
   const have = cachedFile(id);
-  if (have) return have;
+  if (have) return { file: have, sc: false };
 
   await ready;
   await Deno.mkdir(CACHE, { recursive: true });
+  // Проверка «не бот» ещё держится — YouTube не спрашиваем: вопрос её продлит
+  if (botPaused()) return fromSoundcloud(id, who, new BotCheck());
   // Сначала быстрым путём, потом обычным — см. FAST_CLIENT
   try {
-    return await ytdlp(id, true);
+    try {
+      return { file: await ytdlp(id, true), sc: false };
+    } catch (e) {
+      // Проверка «не бот» относится к адресу, а не к клиенту: обычный путь её не обойдёт
+      if (e instanceof BotCheck) throw e;
+      log(`↪️ ${id}: быстрый путь не вышел, качаю обычным`);
+      return { file: await ytdlp(id, false), sc: false };
+    }
   } catch (e) {
-    log(`↪️ ${id}: быстрый путь не вышел, качаю обычным`);
-    return await ytdlp(id, false);
+    if (e instanceof BotCheck) return fromSoundcloud(id, who, e);
+    throw e;
   }
+}
+
+// ── Проверка «не бот» и копия с SoundCloud ───────────────────────────────────
+//
+// «Sign in to confirm you're not a bot» YouTube устраивает адресу, а не
+// треку: пока она держится, не скачается ничего. Чаще всего это у тех, чей
+// провайдер сажает многих абонентов на один внешний адрес (CG-NAT). Тогда:
+//
+//  - минуту YouTube не спрашиваем вовсе — каждый вопрос продлевает проверку;
+//  - ищем тот же трек на SoundCloud (там своей проверки нет) и качаем его
+//    рядом, как <id>.sc.<ext>. Звук не тот же файл, что на YouTube, поэтому
+//    копия играет, только пока YouTube отказывает: заработал — снова он.
+//
+// Так же устроено в приложениях на ПК (stash.rs) и телефоне (Stash.kt).
+// SoundCloud находит примерно половину треков: у части там только отрывок
+// на 30 секунд или звук под DRM — такие не годятся.
+
+class BotCheck extends Error {
+  constructor(msg = 'YouTube просит подтвердить, что вы не бот') { super(msg); }
+}
+
+const BOT_PAUSE_MS = 60_000;
+let botUntil = 0;
+const botPaused = () => Date.now() < botUntil;
+
+/** Копия с SoundCloud: уже скачанная, или найти и скачать. Не вышло — исходная беда. */
+async function fromSoundcloud(id, who, why) {
+  const have = scFile(id);
+  if (have) return { file: have, sc: true };
+  const found = await soundcloud(id, who).catch(e => { log(`⛔ ${id}: SoundCloud: ${e.message ?? e}`); return null; });
+  if (found) return { file: found, sc: true };
+  throw why;
+}
+
+function scFile(id) {
+  for (const ext of AUDIO_EXT) {
+    const name = `${id}.sc${ext}`;
+    try { if (Deno.statSync(`${CACHE}\\${name}`).size > 0) return name; } catch {}
+  }
+  return null;
+}
+
+/** Уже искали за этот запуск — второй раз тот же трек не ищем. */
+const scTried = new Set();
+
+async function soundcloud(id, who) {
+  const artist = String(who?.artist ?? '').trim();
+  const title = String(who?.title ?? '').trim();
+  if (!artist || !title || title === id || scTried.has(id)) return null;
+  scTried.add(id);
+  const rows = await scSearch(`${artist} ${searchTitle(title)}`);
+  for (const row of rows.filter(r => sameTrack(r, artist, title)).slice(0, 3)) {
+    try {
+      await runYtdlp([
+        // Отрывок на 30 секунд — не трек
+        '-f', 'bestaudio[format_id!*=preview]', '--no-playlist', '--no-warnings', '-q',
+        '--socket-timeout', '15', '-o', `${CACHE}\\${id}.sc.%(ext)s`, row.url,
+      ]);
+      const f = scFile(id);
+      if (f) { log(`🎧 ${id}: копия с SoundCloud — ${f}`); trimCache(); return f; }
+    } catch (e) {
+      log(`↪️ ${id}: копия с SoundCloud не скачалась: ${e.message ?? e}`);
+    }
+  }
+  log(`ℹ️ ${id}: на SoundCloud не нашёлся`);
+  return null;
+}
+
+async function runYtdlp(args) {
+  const out = await new Deno.Command(YTDLP, {
+    args: ['--encoding', 'utf-8', ...args],
+    env: { PATH: `${BIN};${Deno.env.get('PATH') ?? ''}`, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    stdout: 'piped', stderr: 'piped',
+  }).output();
+  const dec = new TextDecoder('utf-8');
+  if (!out.success) throw new Error(dec.decode(out.stderr).trim().split('\n').pop() || 'yt-dlp failed');
+  return dec.decode(out.stdout);
+}
+
+const scUrlOk = u => /^https:\/\/(api\.)?soundcloud\.com\//.test(u) && u.length < 300 && !/\s/.test(u);
+
+async function scSearch(q) {
+  const text = await runYtdlp([
+    '--flat-playlist', '--no-warnings', '--socket-timeout', '10', '--extractor-retries', '1',
+    '--print', `%(url)s${SEP}%(title)s${SEP}%(uploader)s${SEP}%(duration)s`, `scsearch5:${q}`,
+  ]);
+  const field = s => (s ?? '').trim() === 'NA' ? '' : (s ?? '').trim();
+  return text.split('\n').map(l => l.split(SEP)).filter(p => p.length >= 3 && scUrlOk(field(p[0])))
+    .map(p => ({ url: field(p[0]), title: field(p[1]), uploader: field(p[2]), dur: Math.max(0, Math.round(Number(field(p[3])) || 0)) }));
+}
+
+// Сверка находки — как у импорта в приложении на ПК (imports.js): лучше
+// пропустить трек, чем поставить чужой.
+
+const BRACKETS = /\((?:[^)]*)\)|\[(?:[^\]]*)\]|\{(?:[^}]*)\}/g;
+const ARTICLES = new Set(['the', 'a', 'an']);
+const TAIL = new Set(['remaster', 'remastered', 'remix', 'version', 'edit', 'mix', 'live', 'mono', 'stereo',
+  'radio', 'original', 'album', 'single', 'acoustic', 'instrumental', 'extended', 'explicit', 'clean',
+  'deluxe', 'bonus', 'official', 'audio', 'video', 'lyrics', 'ремастер', 'версия']);
+
+function words(text) {
+  return String(text ?? '').toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').replace(/ё/g, 'е')
+    .replace(BRACKETS, ' ').replace(/\s(?:feat|ft|featuring)\.?\s.*$/, ' ')
+    .split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+const flat = text => words(text).join('');
+const core = list => (list.length > 1 && ARTICLES.has(list[0]) ? list.slice(1) : list);
+const symbols = text => String(text ?? '').toLowerCase().replace(BRACKETS, '').replace(/\s+/g, '');
+const searchTitle = t => String(t ?? '').replace(BRACKETS, ' ').replace(/(^|\s)-+(?=\S)/g, '$1').replace(/\s+/g, ' ').trim() || String(t ?? '').trim();
+
+function headOf(long, short) {
+  if (short.length > long.length || !short.every((w, i) => long[i] === w)) return false;
+  const next = long[short.length];
+  return next === undefined || TAIL.has(next) || /^\d+$/.test(next);
+}
+
+function alike(found, wanted) {
+  const b = core(words(wanted));
+  if (!b.length) return symbols(wanted) !== '' && symbols(found) === symbols(wanted);
+  const a = core(words(found));
+  if (!a.length) return false;
+  if (a.join('') === b.join('')) return true;
+  return headOf(a, b) || headOf(b, a);
+}
+
+function sameTitle(found, wanted) {
+  if (alike(found, wanted)) return true;
+  const cut = String(wanted ?? '').indexOf(' - ');
+  const head = cut > 0 ? wanted.slice(0, cut) : '';
+  return flat(head).length >= 4 && alike(found, head);
+}
+
+const firstArtist = a => flat(String(a ?? '').split(/,|&| и | x /i)[0]);
+
+function withoutArtist(title, artist) {
+  const cut = String(title ?? '').indexOf(' - ');
+  if (cut < 0) return title;
+  const who = firstArtist(artist);
+  return who.length >= 2 && flat(title.slice(0, cut)).includes(who) ? title.slice(cut + 3) : title;
+}
+
+function sameTrack(row, artist, title) {
+  if (row.dur && row.dur < 45) return false;     // отрывок или заставка
+  const who = firstArtist(artist);
+  if (who.length < 2 || !(flat(row.title).includes(who) || flat(row.uploader).includes(who))) return false;
+  return sameTitle(row.title, title) || sameTitle(withoutArtist(row.title, artist), title);
 }
 
 /**
@@ -185,17 +347,21 @@ async function ytdlp(id, fast) {
   }).output();
 
   if (!out.success) {
-    let err = new TextDecoder('utf-8').decode(out.stderr).trim().split('\n').pop() || 'yt-dlp failed';
-    if (err.includes('Sign in to confirm')) {
-      err = 'YouTube требует свежие cookies («я не бот»). Переэкспортируйте cookies.txt — см. README модуля.';
-    }
+    const err = new TextDecoder('utf-8').decode(out.stderr).trim().split('\n').pop() || 'yt-dlp failed';
     log(`⛔ ${id}: ${err}`);
+    if (/confirm you.{0,3}re not a bot|sign in to confirm/i.test(err)) {
+      botUntil = Date.now() + BOT_PAUSE_MS;
+      throw new BotCheck('YouTube требует подтвердить, что вы не бот. Обычно проходит само за минуту-две; помогают и свежие cookies — см. README модуля.');
+    }
     throw new Error(err);
   }
 
   const f = cachedFile(id);
   if (!f) throw new Error('Файл не появился в кэше после скачивания');
   log(`✅ В кэше: ${f}`);
+  // Настоящий звук пришёл — копия с SoundCloud больше не нужна
+  const sc = scFile(id);
+  if (sc) try { Deno.removeSync(`${CACHE}\\${sc}`); } catch {}
   trimCache();
   return f;
 }
@@ -298,6 +464,13 @@ function json(obj, status = 200, origin = null) {
   });
 }
 
+/** Исполнитель и название из запроса — для поиска на SoundCloud. */
+function who(u) {
+  const artist = (u.searchParams.get('a') ?? '').slice(0, 200);
+  const title = (u.searchParams.get('t') ?? '').slice(0, 300);
+  return artist && title ? { artist, title } : null;
+}
+
 async function handler(req) {
   const u = new URL(req.url);
   const id = u.searchParams.get('id') ?? '';
@@ -326,8 +499,8 @@ async function handler(req) {
   if (u.pathname === '/api/yt/ensure') {
     if (!ID_RE.test(id)) return json({ ready: false, error: 'Некорректный ID видео' }, 400, origin);
     try {
-      const f = await download(id);
-      return json({ ready: true, url: `${CACHE_URL}/${f}` }, 200, origin);
+      const { file, sc } = await download(id, who(u));
+      return json({ ready: true, url: `${CACHE_URL}/${file}`, sc }, 200, origin);
     } catch (e) {
       return json({ ready: false, error: String(e.message ?? e) }, 502, origin);
     }
@@ -335,7 +508,7 @@ async function handler(req) {
 
   if (u.pathname === '/api/yt/prefetch') {
     if (!ID_RE.test(id)) return json({ started: false }, 400, origin);
-    download(id).catch(() => {});
+    download(id, who(u)).catch(() => {});
     return json({ started: true }, 200, origin);
   }
 

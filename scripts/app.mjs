@@ -773,12 +773,15 @@ export class LMApp extends HandlebarsApp {
 
   _relaySources() {
     const h = LMApp.HELPER_URL;
+    // Исполнитель и название — помощнику для копии с SoundCloud, когда YouTube
+    // просит подтвердить, что не бот (helper.mjs, с 2.15.0)
+    const who = t => t?.artist && t?.title ? `&a=${encodeURIComponent(t.artist)}&t=${encodeURIComponent(t.title)}` : '';
     const sources = [{
       name:        'помощник',
       local:       true, // качает в нашу же папку кэша — результат можно запомнить
       ping:        () => `${h}/api/ping`,
-      ensure:      id => `${h}/api/yt/ensure?id=${encodeURIComponent(id)}`,
-      prefetch:    id => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}`,
+      ensure:      (id, t) => `${h}/api/yt/ensure?id=${encodeURIComponent(id)}${who(t)}`,
+      prefetch:    (id, t) => `${h}/api/yt/prefetch?id=${encodeURIComponent(id)}${who(t)}`,
       cacheStatus: () => `${h}/api/cache/status`,
       cacheClear:  () => `${h}/api/cache/clear`,
       cacheClearOptions: { method: 'POST' },
@@ -927,15 +930,16 @@ export class LMApp extends HandlebarsApp {
 
     // Различаем «никто не ответил» (помощник не запущен) и «ответил отказом»
     // (запущен, но конкретный трек не скачался — например, протухли cookies).
-    let url = null, source = null, answered = false, failure = null;
+    let url = null, source = null, answered = false, failure = null, scCopy = false;
     for (const s of this._relaySources()) {
       try {
-        const res  = await fetch(s.ensure(videoId));
+        const res  = await fetch(s.ensure(videoId, this.track?.id === videoId ? this.track : null));
         answered = true;
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ready) throw new Error(data.error || `HTTP ${res.status}`);
         url = s.resolve(data);
         source = s;
+        scCopy = Boolean(data.sc);
         break;
       } catch (e) {
         failure = e?.message ?? String(e);
@@ -978,10 +982,12 @@ export class LMApp extends HandlebarsApp {
 
     // Помощник качает в нашу же папку — значит трек теперь в кэше навсегда.
     // Внешний сервер держит файлы у себя, его ответ запоминать нельзя.
-    if (source.local) {
+    // Копия с SoundCloud — только пока YouTube отказывает: её не запоминаем
+    if (source.local && !scCopy) {
       LMCache.remember(videoId, url);
       this._markCached(videoId);
     }
+    if (scCopy) ui.notifications.info(L('PlayingSoundcloud'));
     this._logTrack(videoId, source.local ? 'helper' : 'server', { url, ms: Math.round(performance.now() - asked) });
     this._startFromFile(videoId, url, source);
   }
@@ -1036,7 +1042,7 @@ export class LMApp extends HandlebarsApp {
     if (LMCache.has(next.id)) return;               // уже на диске, качать нечего
     if (this._helperAlive === false) return;        // качать некому
     const s = source ?? this._relaySources()[0];
-    fetch(s.prefetch(next.id)).catch(() => {});
+    fetch(s.prefetch(next.id, next)).catch(() => {});
   }
 
   /** Зажигает точку «в кэше» у трека, не перерисовывая весь список. */
