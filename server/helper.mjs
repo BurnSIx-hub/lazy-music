@@ -161,7 +161,8 @@ async function _download(id, who) {
       return { file: await ytdlp(id, false), sc: false };
     }
   } catch (e) {
-    if (e instanceof BotCheck) return fromSoundcloud(id, who, e);
+    // 18+ без входа не отдаст ни один путь — копия с SoundCloud выручит и тут
+    if (e instanceof BotCheck || e instanceof AgeCheck) return fromSoundcloud(id, who, e);
     throw e;
   }
 }
@@ -183,6 +184,11 @@ async function _download(id, who) {
 
 class BotCheck extends Error {
   constructor(msg = 'YouTube просит подтвердить, что вы не бот') { super(msg); }
+}
+
+/** Ролик 18+: YouTube отдаёт его только аккаунту с подтверждённым возрастом. Паузы не ставит. */
+class AgeCheck extends Error {
+  constructor() { super('Ролик 18+: YouTube отдаёт его только после входа в аккаунт с подтверждённым возрастом'); }
 }
 
 const BOT_PAUSE_MS = 60_000;
@@ -349,10 +355,13 @@ async function ytdlp(id, fast) {
   if (!out.success) {
     const err = new TextDecoder('utf-8').decode(out.stderr).trim().split('\n').pop() || 'yt-dlp failed';
     log(`⛔ ${id}: ${err}`);
-    if (/confirm you.{0,3}re not a bot|sign in to confirm/i.test(err)) {
+    // Только «not a bot»: «Sign in to confirm your age» — про один ролик 18+,
+    // а не про адрес; до 2.15.1 он ставил паузу, и минуту не качалось ничего
+    if (/not a bot/i.test(err)) {
       botUntil = Date.now() + BOT_PAUSE_MS;
       throw new BotCheck('YouTube требует подтвердить, что вы не бот. Обычно проходит само за минуту-две; помогают и свежие cookies — см. README модуля.');
     }
+    if (/confirm your age|age.restricted/i.test(err)) throw new AgeCheck();
     throw new Error(err);
   }
 
